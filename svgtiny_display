@@ -1,0 +1,3 @@
+set -e
+make
+./svgtiny_test $1 | convert mvg:- png:- | display -
