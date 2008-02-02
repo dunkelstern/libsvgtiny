@@ -40,8 +40,6 @@ int main(int argc, char *argv[])
 	}
 	size = sb.st_size;
 
-	fprintf(stderr, "size: %lld bytes\n", (long long) size);
-
 	buffer = malloc(size);
 	if (!buffer) {
 		fprintf(stderr, "Unable to allocate %lld bytes\n",
@@ -68,6 +66,8 @@ int main(int argc, char *argv[])
 	code = svgtiny_parse(diagram, buffer, size, argv[1], 1000, 1000);
 	if (code != svgtiny_OK)
 		fprintf(stderr, "svgtiny_parse failed: %i\n", code);
+
+	free(buffer);
 
 	printf("viewbox 0 0 %i %i\n", diagram->width, diagram->height);
 
@@ -125,6 +125,8 @@ int main(int argc, char *argv[])
 		}
 		printf("\n");
 	}
+
+	svgtiny_free(diagram);
 
 	return 0;
 }

@@ -25,9 +25,6 @@ struct svgtiny_shape {
 };
 
 struct svgtiny_diagram {
-	xmlDoc *doc;
-	xmlNode *svg;
-
 	int width, height;
 
 	struct svgtiny_shape *shape;

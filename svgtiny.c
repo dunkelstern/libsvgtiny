@@ -75,8 +75,6 @@ struct svgtiny_diagram *svgtiny_create(void)
 	if (!diagram)
 		return 0;
 
-	diagram->doc = 0;
-	diagram->svg = 0;
 	diagram->shape = 0;
 	diagram->shape_count = 0;
 
@@ -102,7 +100,6 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 			XML_PARSE_DTDVALID /* needed for xmlGetID to work */);
 	if (!document)
 		return svgtiny_LIBXML_ERROR;
-	diagram->doc = document;
 
 	/*xmlDebugDumpDocument(stderr, document);*/
 
@@ -112,12 +109,11 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		return svgtiny_NOT_SVG;
 	if (strcmp((const char *) svg->name, "svg") != 0)
 		return svgtiny_NOT_SVG;
-	diagram->svg = svg;
 
 	/* get graphic dimensions */
 	float x, y, width, height;
 	state.diagram = diagram;
-	state.document = diagram->doc;
+	state.document = document;
 	state.viewport_width = viewport_width;
 	state.viewport_height = viewport_height;
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
@@ -138,7 +134,11 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	state.stroke = svgtiny_TRANSPARENT;
 	state.stroke_width = 1;
 
-	return svgtiny_parse_svg(svg, state);
+	svgtiny_parse_svg(svg, state);
+
+	xmlFreeDoc(document);
+
+	return svgtiny_OK;
 }
 
 
@@ -1070,5 +1070,20 @@ void svgtiny_transform_path(float *p, unsigned int n,
 			j += 2;
 		}
 	}
+}
+
+
+void svgtiny_free(struct svgtiny_diagram *svg)
+{
+	assert(svg);
+
+	for (unsigned int i = 0; i != svg->shape_count; i++) {
+		free(svg->shape[i].path);
+		free(svg->shape[i].text);
+	}
+	
+	free(svg->shape);
+
+	free(svg);
 }
 

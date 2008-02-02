@@ -29,7 +29,7 @@ svgtiny_test$(EXEEXT): svgtiny_test.c libsvgtiny.a
 	$(CC) $(CFLAGS) $(LIBS) -o $@ $^
 
 clean:
-	-rm *.o libsvgtiny.a svgtiny_test$(EXEEXT)
+	-rm *.o libsvgtiny.a svgtiny_test$(EXEEXT) colors.c
 
 colors.c: colors.gperf
 	gperf --output-file=$@ $<
