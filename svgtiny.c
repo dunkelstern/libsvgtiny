@@ -1033,7 +1033,8 @@ struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state)
 	shape->text = 0;
 	shape->fill = state->fill;
 	shape->stroke = state->stroke;
-	shape->stroke_width = state->stroke_width;
+	shape->stroke_width = state->stroke_width *
+			(state->ctm.a + state->ctm.d) / 2;
 
 	return shape;
 }

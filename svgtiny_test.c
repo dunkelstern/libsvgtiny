@@ -80,6 +80,7 @@ int main(int argc, char *argv[])
 			printf("stroke none ");
 		else
 			printf("stroke #%.6x ", diagram->shape[i].stroke);
+		printf("stroke-width %i ", diagram->shape[i].stroke_width);
 		if (diagram->shape[i].path) {
 			printf("path '");
 			for (unsigned int j = 0;
