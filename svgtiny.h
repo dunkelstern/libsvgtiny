@@ -12,7 +12,11 @@
 
 typedef int svgtiny_colour;
 #define svgtiny_TRANSPARENT 0x1000000
+#ifdef riscos
+#define svgtiny_RGB(r, g, b) ((b) << 16 | (g) << 8 | (r))
+#else
 #define svgtiny_RGB(r, g, b) ((r) << 16 | (g) << 8 | (b))
+#endif
 
 struct svgtiny_shape {
 	float *path;
