@@ -5,8 +5,8 @@
 # Copyright 2008 James Bursa <james@semichrome.net>
 #
 
-SOURCE = svgtiny.c colors.c
-HDRS = svgtiny.h
+SOURCE = svgtiny.c svgtiny_gradient.c colors.c
+HDRS = svgtiny.h svgtiny_internal.h
 
 CFLAGS = -std=c99 -W -Wall -Wundef -Wpointer-arith -Wcast-qual \
 	-Wcast-align -Wwrite-strings -Wstrict-prototypes \
@@ -68,7 +68,7 @@ $(OBJDIR)/%.o: %.c $(HDRS)
 
 install: $(LIBDIR)/libsvgtiny.a
 	$(INSTALL) -t $(PREFIX)/lib $(LIBDIR)/libsvgtiny.a
-	$(INSTALL) -t $(PREFIX)/include $(HDRS)
+	$(INSTALL) -t $(PREFIX)/include svgtiny.h
 
 clean:
 	-rm $(OBJS) $(LIBDIR)/libsvgtiny.a $(BINDIR)/svgtiny_test$(EXEEXT) colors.c

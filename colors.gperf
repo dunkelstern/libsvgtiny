@@ -15,6 +15,7 @@
 %{
 #include <string.h>
 #include "svgtiny.h"
+#include "svgtiny_internal.h"
 %}
 
 struct svgtiny_named_color;

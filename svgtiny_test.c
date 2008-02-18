@@ -64,8 +64,29 @@ int main(int argc, char *argv[])
 
 	/* parse */
 	code = svgtiny_parse(diagram, buffer, size, argv[1], 1000, 1000);
-	if (code != svgtiny_OK)
-		fprintf(stderr, "svgtiny_parse failed: %i\n", code);
+	if (code != svgtiny_OK) {
+		fprintf(stderr, "svgtiny_parse failed: ");
+		switch (code) {
+		case svgtiny_OUT_OF_MEMORY:
+			fprintf(stderr, "svgtiny_OUT_OF_MEMORY");
+			break;
+		case svgtiny_LIBXML_ERROR:
+			fprintf(stderr, "svgtiny_LIBXML_ERROR");
+			break;
+		case svgtiny_NOT_SVG:
+			fprintf(stderr, "svgtiny_NOT_SVG");
+			break;
+		case svgtiny_SVG_ERROR:
+			fprintf(stderr, "svgtiny_SVG_ERROR: line %i: %s",
+					diagram->error_line,
+					diagram->error_message);
+			break;
+		default:
+			fprintf(stderr, "unknown svgtiny_code %i", code);
+			break;
+		}
+		fprintf(stderr, "\n");
+	}
 
 	free(buffer);
 

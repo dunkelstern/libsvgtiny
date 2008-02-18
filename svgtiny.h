@@ -14,8 +14,14 @@ typedef int svgtiny_colour;
 #define svgtiny_TRANSPARENT 0x1000000
 #ifdef riscos
 #define svgtiny_RGB(r, g, b) ((b) << 16 | (g) << 8 | (r))
+#define svgtiny_RED(c) ((c) & 0xff)
+#define svgtiny_GREEN(c) (((c) >> 8) & 0xff)
+#define svgtiny_BLUE(c) (((c) >> 16) & 0xff)
 #else
 #define svgtiny_RGB(r, g, b) ((r) << 16 | (g) << 8 | (b))
+#define svgtiny_RED(c) (((c) >> 16) & 0xff)
+#define svgtiny_GREEN(c) (((c) >> 8) & 0xff)
+#define svgtiny_BLUE(c) ((c) & 0xff)
 #endif
 
 struct svgtiny_shape {
@@ -33,6 +39,9 @@ struct svgtiny_diagram {
 
 	struct svgtiny_shape *shape;
 	unsigned int shape_count;
+
+	unsigned short error_line;
+	const char *error_message;
 };
 
 typedef enum {
@@ -40,6 +49,7 @@ typedef enum {
 	svgtiny_OUT_OF_MEMORY,
 	svgtiny_LIBXML_ERROR,
 	svgtiny_NOT_SVG,
+	svgtiny_SVG_ERROR,
 } svgtiny_code;
 
 enum {
@@ -60,8 +70,5 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		const char *buffer, size_t size, const char *url,
 		int width, int height);
 void svgtiny_free(struct svgtiny_diagram *svg);
-
-const struct svgtiny_named_color *
-svgtiny_color_lookup (register const char *str, register unsigned int len);
 
 #endif

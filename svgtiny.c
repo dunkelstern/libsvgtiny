@@ -16,38 +16,23 @@
 #include <libxml/parser.h>
 #include <libxml/debugXML.h>
 #include "svgtiny.h"
+#include "svgtiny_internal.h"
 
 
-struct svgtiny_parse_state {
-	struct svgtiny_diagram *diagram;
-	xmlDoc *document;
-
-	float viewport_width;
-	float viewport_height;
-
-	/* current transformation matrix */
-	struct {
-		float a, b, c, d, e, f;
-	} ctm;
-
-	/*struct css_style style;*/
-
-	/* paint attributes */
-	svgtiny_colour fill;
-	svgtiny_colour stroke;
-	int stroke_width;
-};
-
-
-static bool svgtiny_parse_svg(xmlNode *svg, struct svgtiny_parse_state state);
-static bool svgtiny_parse_path(xmlNode *path, struct svgtiny_parse_state state);
-static bool svgtiny_parse_rect(xmlNode *rect, struct svgtiny_parse_state state);
-static bool svgtiny_parse_circle(xmlNode *circle,
+static svgtiny_code svgtiny_parse_svg(xmlNode *svg,
 		struct svgtiny_parse_state state);
-static bool svgtiny_parse_line(xmlNode *line, struct svgtiny_parse_state state);
-static bool svgtiny_parse_poly(xmlNode *poly, struct svgtiny_parse_state state,
-		bool polygon);
-static bool svgtiny_parse_text(xmlNode *text, struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_path(xmlNode *path,
+		struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+		struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+		struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_line(xmlNode *line,
+		struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+		struct svgtiny_parse_state state, bool polygon);
+static svgtiny_code svgtiny_parse_text(xmlNode *text,
+		struct svgtiny_parse_state state);
 static void svgtiny_parse_position_attributes(const xmlNode *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height);
@@ -55,17 +40,17 @@ static float svgtiny_parse_length(const char *s, int viewport_size,
 		const struct svgtiny_parse_state state);
 static void svgtiny_parse_paint_attributes(const xmlNode *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_color(const char *s, svgtiny_colour *c,
-		struct svgtiny_parse_state *state);
 static void svgtiny_parse_font_attributes(const xmlNode *node,
 		struct svgtiny_parse_state *state);
 static void svgtiny_parse_transform_attributes(xmlNode *node,
 		struct svgtiny_parse_state *state);
-static struct svgtiny_shape *svgtiny_add_shape(
-		struct svgtiny_parse_state *state);
-static void svgtiny_transform_path(float *p, unsigned int n,
+static svgtiny_code svgtiny_add_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
 
+
+/**
+ * Create a new svgtiny_diagram structure.
+ */
 
 struct svgtiny_diagram *svgtiny_create(void)
 {
@@ -77,10 +62,16 @@ struct svgtiny_diagram *svgtiny_create(void)
 
 	diagram->shape = 0;
 	diagram->shape_count = 0;
+	diagram->error_line = 0;
+	diagram->error_message = 0;
 
 	return diagram;
 }
 
+
+/**
+ * Parse a block of memory into a svgtiny_diagram.
+ */
 
 svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		const char *buffer, size_t size, const char *url,
@@ -89,6 +80,8 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	xmlDoc *document;
 	xmlNode *svg;
 	struct svgtiny_parse_state state;
+	float x, y, width, height;
+	svgtiny_code code;
 
 	assert(diagram);
 	assert(buffer);
@@ -96,8 +89,7 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 
 	/* parse XML to tree */
 	document = xmlReadMemory(buffer, size, url, 0,
-			XML_PARSE_NONET | XML_PARSE_COMPACT |
-			XML_PARSE_DTDVALID /* needed for xmlGetID to work */);
+			XML_PARSE_NONET | XML_PARSE_COMPACT);
 	if (!document)
 		return svgtiny_LIBXML_ERROR;
 
@@ -111,7 +103,6 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		return svgtiny_NOT_SVG;
 
 	/* get graphic dimensions */
-	float x, y, width, height;
 	state.diagram = diagram;
 	state.document = document;
 	state.viewport_width = viewport_width;
@@ -120,6 +111,7 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	diagram->width = width;
 	diagram->height = height;
 
+	/* set up parsing state */
 	state.viewport_width = width;
 	state.viewport_height = height;
 	state.ctm.a = 1; /*(float) viewport_width / (float) width;*/
@@ -133,12 +125,15 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	state.fill = 0x000000;
 	state.stroke = svgtiny_TRANSPARENT;
 	state.stroke_width = 1;
+	state.linear_gradient_stop_count = 0;
 
-	svgtiny_parse_svg(svg, state);
+	/* parse tree */
+	code = svgtiny_parse_svg(svg, state);
 
+	/* free XML tree */
 	xmlFreeDoc(document);
 
-	return svgtiny_OK;
+	return code;
 }
 
 
@@ -146,7 +141,8 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
  * Parse a <svg> or <g> element node.
  */
 
-bool svgtiny_parse_svg(xmlNode *svg, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_svg(xmlNode *svg,
+		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 
@@ -173,38 +169,39 @@ bool svgtiny_parse_svg(xmlNode *svg, struct svgtiny_parse_state state)
 	svgtiny_parse_transform_attributes(svg, &state);
 
 	for (xmlNode *child = svg->children; child; child = child->next) {
-		bool ok = true;
+		svgtiny_code code = svgtiny_OK;
 
 		if (child->type == XML_ELEMENT_NODE) {
 			const char *name = (const char *) child->name;
 			if (strcmp(name, "svg") == 0)
-				ok = svgtiny_parse_svg(child, state);
+				code = svgtiny_parse_svg(child, state);
 			else if (strcmp(name, "g") == 0)
-				ok = svgtiny_parse_svg(child, state);
+				code = svgtiny_parse_svg(child, state);
 			else if (strcmp(name, "a") == 0)
-				ok = svgtiny_parse_svg(child, state);
+				code = svgtiny_parse_svg(child, state);
 			else if (strcmp(name, "path") == 0)
-				ok = svgtiny_parse_path(child, state);
+				code = svgtiny_parse_path(child, state);
 			else if (strcmp(name, "rect") == 0)
-				ok = svgtiny_parse_rect(child, state);
+				code = svgtiny_parse_rect(child, state);
 			else if (strcmp(name, "circle") == 0)
-				ok = svgtiny_parse_circle(child, state);
+				code = svgtiny_parse_circle(child, state);
 			else if (strcmp(name, "line") == 0)
-				ok = svgtiny_parse_line(child, state);
+				code = svgtiny_parse_line(child, state);
 			else if (strcmp(name, "polyline") == 0)
-				ok = svgtiny_parse_poly(child, state, false);
+				code = svgtiny_parse_poly(child, state, false);
 			else if (strcmp(name, "polygon") == 0)
-				ok = svgtiny_parse_poly(child, state, true);
+				code = svgtiny_parse_poly(child, state, true);
 			else if (strcmp(name, "text") == 0)
-				ok = svgtiny_parse_text(child, state);
+				code = svgtiny_parse_text(child, state);
 		}
 
-		if (!ok)
-			return false;
+		if (code != svgtiny_OK)
+			return code;
 	}
 
-	return true;
+	return svgtiny_OK;
 }
+
 
 
 /**
@@ -213,7 +210,8 @@ bool svgtiny_parse_svg(xmlNode *svg, struct svgtiny_parse_state state)
  * http://www.w3.org/TR/SVG11/paths#PathElement
  */
 
-bool svgtiny_parse_path(xmlNode *path, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_path(xmlNode *path,
+		struct svgtiny_parse_state state)
 {
 	char *s, *path_d;
 
@@ -223,16 +221,15 @@ bool svgtiny_parse_path(xmlNode *path, struct svgtiny_parse_state state)
 	/* read d attribute */
 	s = path_d = (char *) xmlGetProp(path, (const xmlChar *) "d");
 	if (!s) {
-		/*LOG(("path missing d attribute"));*/
-		return false;
+		state.diagram->error_line = path->line;
+		state.diagram->error_message = "path: missing d attribute";
+		return svgtiny_SVG_ERROR;
 	}
 
 	/* allocate space for path: it will never have more elements than d */
 	float *p = malloc(sizeof p[0] * strlen(s));
-	if (!p) {
-		/*LOG(("out of memory"));*/
-		return false;
-	}
+	if (!p)
+		return svgtiny_OUT_OF_MEMORY;
 
 	/* parse d and build path */
 	for (unsigned int i = 0; s[i]; i++)
@@ -408,18 +405,7 @@ bool svgtiny_parse_path(xmlNode *path, struct svgtiny_parse_state state)
 
 	xmlFree(path_d);
 
-	svgtiny_transform_path(p, i, &state);
-
-	struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-	if (!shape) {
-		free(p);
-		return false;
-	}
-	shape->path = p;
-	shape->path_length = i;
-	state.diagram->shape_count++;
-
-	return true;
+	return svgtiny_add_path(p, i, &state);
 }
 
 
@@ -429,7 +415,8 @@ bool svgtiny_parse_path(xmlNode *path, struct svgtiny_parse_state state)
  * http://www.w3.org/TR/SVG11/shapes#RectElement
  */
 
-bool svgtiny_parse_rect(xmlNode *rect, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 
@@ -440,7 +427,7 @@ bool svgtiny_parse_rect(xmlNode *rect, struct svgtiny_parse_state state)
 
 	float *p = malloc(13 * sizeof p[0]);
 	if (!p)
-		return false;
+		return svgtiny_OUT_OF_MEMORY;
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x;
@@ -456,18 +443,7 @@ bool svgtiny_parse_rect(xmlNode *rect, struct svgtiny_parse_state state)
 	p[11] = y + height;
 	p[12] = svgtiny_PATH_CLOSE;
 
-	svgtiny_transform_path(p, 13, &state);
-
-	struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-	if (!shape) {
-		free(p);
-		return false;
-	}
-	shape->path = p;
-	shape->path_length = 13;
-	state.diagram->shape_count++;
-
-	return true;
+	return svgtiny_add_path(p, 13, &state);
 }
 
 
@@ -475,7 +451,8 @@ bool svgtiny_parse_rect(xmlNode *rect, struct svgtiny_parse_state state)
  * Parse a <circle> element node.
  */
 
-bool svgtiny_parse_circle(xmlNode *circle, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+		struct svgtiny_parse_state state)
 {
 	float x = 0, y = 0, r = 0;
 	const float kappa = 0.5522847498;
@@ -498,7 +475,7 @@ bool svgtiny_parse_circle(xmlNode *circle, struct svgtiny_parse_state state)
 
 	float *p = malloc(32 * sizeof p[0]);
 	if (!p)
-		return false;
+		return svgtiny_OUT_OF_MEMORY;
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x - r;
@@ -533,18 +510,7 @@ bool svgtiny_parse_circle(xmlNode *circle, struct svgtiny_parse_state state)
 	p[30] = y;
 	p[31] = svgtiny_PATH_CLOSE;
 	
-	svgtiny_transform_path(p, 32, &state);
-
-	struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-	if (!shape) {
-		free(p);
-		return false;
-	}
-	shape->path = p;
-	shape->path_length = 32;
-	state.diagram->shape_count++;
-
-	return true;
+	return svgtiny_add_path(p, 32, &state);
 }
 
 
@@ -552,7 +518,8 @@ bool svgtiny_parse_circle(xmlNode *circle, struct svgtiny_parse_state state)
  * Parse a <line> element node.
  */
 
-bool svgtiny_parse_line(xmlNode *line, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_line(xmlNode *line,
+		struct svgtiny_parse_state state)
 {
 	float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 
@@ -577,7 +544,7 @@ bool svgtiny_parse_line(xmlNode *line, struct svgtiny_parse_state state)
 
 	float *p = malloc(7 * sizeof p[0]);
 	if (!p)
-		return false;
+		return svgtiny_OUT_OF_MEMORY;
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x1;
@@ -587,18 +554,7 @@ bool svgtiny_parse_line(xmlNode *line, struct svgtiny_parse_state state)
 	p[5] = y2;
 	p[6] = svgtiny_PATH_CLOSE;
 
-	svgtiny_transform_path(p, 7, &state);
-
-	struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-	if (!shape) {
-		free(p);
-		return false;
-	}
-	shape->path = p;
-	shape->path_length = 7;
-	state.diagram->shape_count++;
-
-	return true;
+	return svgtiny_add_path(p, 7, &state);
 }
 
 
@@ -609,26 +565,28 @@ bool svgtiny_parse_line(xmlNode *line, struct svgtiny_parse_state state)
  * http://www.w3.org/TR/SVG11/shapes#PolygonElement
  */
 
-bool svgtiny_parse_poly(xmlNode *poly, struct svgtiny_parse_state state,
-		bool polygon)
+svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+		struct svgtiny_parse_state state, bool polygon)
 {
 	char *s, *points;
 
 	svgtiny_parse_paint_attributes(poly, &state);
 	svgtiny_parse_transform_attributes(poly, &state);
 
-	/* read d attribute */
+	/* read points attribute */
 	s = points = (char *) xmlGetProp(poly, (const xmlChar *) "points");
 	if (!s) {
-		/*LOG(("poly missing d attribute"));*/
-		return false;
+		state.diagram->error_line = poly->line;
+		state.diagram->error_message =
+				"polyline/polygon: missing points attribute";
+		return svgtiny_SVG_ERROR;
 	}
 
 	/* allocate space for path: it will never have more elements than s */
 	float *p = malloc(sizeof p[0] * strlen(s));
 	if (!p) {
-		/*LOG(("out of memory"));*/
-		return false;
+		xmlFree(points);
+		return svgtiny_OUT_OF_MEMORY;
 	}
 
 	/* parse s and build path */
@@ -657,18 +615,7 @@ bool svgtiny_parse_poly(xmlNode *poly, struct svgtiny_parse_state state,
 
 	xmlFree(points);
 
-	svgtiny_transform_path(p, i, &state);
-
-	struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-	if (!shape) {
-		free(p);
-		return false;
-	}
-	shape->path = p;
-	shape->path_length = i;
-	state.diagram->shape_count++;
-
-	return true;
+	return svgtiny_add_path(p, i, &state);
 }
 
 
@@ -676,7 +623,8 @@ bool svgtiny_parse_poly(xmlNode *poly, struct svgtiny_parse_state state,
  * Parse a <text> or <tspan> element node.
  */
 
-bool svgtiny_parse_text(xmlNode *text, struct svgtiny_parse_state state)
+svgtiny_code svgtiny_parse_text(xmlNode *text,
+		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 
@@ -694,12 +642,12 @@ bool svgtiny_parse_text(xmlNode *text, struct svgtiny_parse_state state)
 	style.font_size.value.length.value *= state.ctm.a;*/
 
 	for (xmlNode *child = text->children; child; child = child->next) {
-		bool ok = true;
+		svgtiny_code code = svgtiny_OK;
 
 		if (child->type == XML_TEXT_NODE) {
 			struct svgtiny_shape *shape = svgtiny_add_shape(&state);
 			if (!shape)
-				return false;
+				return svgtiny_OUT_OF_MEMORY;
 			shape->text = strdup((const char *) child->content);
 			shape->text_x = px;
 			shape->text_y = py;
@@ -708,14 +656,14 @@ bool svgtiny_parse_text(xmlNode *text, struct svgtiny_parse_state state)
 		} else if (child->type == XML_ELEMENT_NODE &&
 				strcmp((const char *) child->name,
 					"tspan") == 0) {
-			ok = svgtiny_parse_text(child, state);
+			code = svgtiny_parse_text(child, state);
 		}
 
-		if (!ok)
-			return false;
+		if (!code != svgtiny_OK)
+			return code;
 	}
 
-	return true;
+	return svgtiny_OK;
 }
 
 
@@ -850,7 +798,6 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 	float rf, gf, bf;
 	size_t len = strlen(s);
 	char *id = 0, *rparen;
-	xmlAttr *id_attr;
 
 	if (len == 4 && s[0] == '#') {
 		if (sscanf(s + 1, "%1x%1x%1x", &r, &g, &b) == 3)
@@ -883,15 +830,16 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 			rparen = strchr(id, ')');
 			if (rparen)
 				*rparen = 0;
-			id_attr = xmlGetID(state->document,
-					(const xmlChar *) id);
-			if (!id_attr) {
-				fprintf(stderr, "id \"%s\" not found\n", id);
-				free(id);
-				return;
-			}
-			fprintf(stderr, "id \"%s\" at %p\n", id, id_attr);
+			svgtiny_find_gradient(id, state);
 			free(id);
+			fprintf(stderr, "linear_gradient_stop_count %i\n",
+					state->linear_gradient_stop_count);
+			if (state->linear_gradient_stop_count == 0)
+				*c = svgtiny_TRANSPARENT;
+			else if (state->linear_gradient_stop_count == 1)
+				*c = state->gradient_stop[0].color;
+			else
+				*c = svgtiny_LINEAR_GRADIENT;
 		}
 
 	} else {
@@ -1015,6 +963,31 @@ void svgtiny_parse_transform_attributes(xmlNode *node,
 
 
 /**
+ * Add a path to the svgtiny_diagram.
+ */
+
+svgtiny_code svgtiny_add_path(float *p, unsigned int n,
+		struct svgtiny_parse_state *state)
+{
+	if (state->fill == svgtiny_LINEAR_GRADIENT)
+		return svgtiny_add_path_linear_gradient(p, n, state);
+
+	svgtiny_transform_path(p, n, state);
+
+	struct svgtiny_shape *shape = svgtiny_add_shape(state);
+	if (!shape) {
+		free(p);
+		return svgtiny_OUT_OF_MEMORY;
+	}
+	shape->path = p;
+	shape->path_length = n;
+	state->diagram->shape_count++;
+
+	return svgtiny_OK;
+}
+
+
+/**
  * Add a svgtiny_shape to the svgtiny_diagram.
  */
 
@@ -1033,12 +1006,16 @@ struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state)
 	shape->text = 0;
 	shape->fill = state->fill;
 	shape->stroke = state->stroke;
-	shape->stroke_width = state->stroke_width *
-			(state->ctm.a + state->ctm.d) / 2;
+	shape->stroke_width = 1; /*state->stroke_width *
+			(state->ctm.a + state->ctm.d) / 2;*/
 
 	return shape;
 }
 
+
+/**
+ * Apply the current transformation matrix to a path.
+ */
 
 void svgtiny_transform_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state)
@@ -1073,6 +1050,10 @@ void svgtiny_transform_path(float *p, unsigned int n,
 	}
 }
 
+
+/**
+ * Free all memory used by a diagram.
+ */
 
 void svgtiny_free(struct svgtiny_diagram *svg)
 {
