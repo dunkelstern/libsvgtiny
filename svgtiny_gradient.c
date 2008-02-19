@@ -11,7 +11,7 @@
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
-#define GRADIENT_DEBUG
+#undef GRADIENT_DEBUG
 
 static svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 		struct svgtiny_parse_state *state);
@@ -29,6 +29,10 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	fprintf(stderr, "svgtiny_find_gradient: id \"%s\"\n", id);
 
 	state->linear_gradient_stop_count = 0;
+	state->gradient_x1 = "0%";
+	state->gradient_y1 = "0%";
+	state->gradient_x2 = "100%";
+	state->gradient_y2 = "0%";
 
 	xmlNode *gradient = svgtiny_find_element_by_id(
 			(xmlNode *) state->document, id);
@@ -58,6 +62,19 @@ svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 	if (href && href->children->content[0] == '#')
 		svgtiny_find_gradient((const char *) href->children->content
 				+ 1, state);
+
+	for (xmlAttr *attr = linear->properties; attr; attr = attr->next) {
+		const char *name = (const char *) attr->name;
+		const char *content = (const char *) attr->children->content;
+		if (strcmp(name, "x1") == 0)
+			state->gradient_x1 = content;
+		else if (strcmp(name, "y1") == 0)
+			state->gradient_y1 = content;
+		else if (strcmp(name, "x2") == 0)
+			state->gradient_x2 = content;
+		else if (strcmp(name, "y2") == 0)
+			state->gradient_y2 = content;
+        }
 
 	unsigned int i = 0;
 	for (xmlNode *stop = linear->children; stop; stop = stop->next) {
@@ -148,13 +165,19 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	#endif
 
 	/* compute gradient vector */
-	float gradient_x0 = 0, gradient_y0 = 0,
-	      gradient_x1 = 1, gradient_y1 = 0.7,
+	fprintf(stderr, "x1 %s, y1 %s, x2 %s, y2 %s\n",
+			state->gradient_x1, state->gradient_y1,
+			state->gradient_x2, state->gradient_y2);
+	float gradient_x0, gradient_y0, gradient_x1, gradient_y1,
 	      gradient_dx, gradient_dy;
-	gradient_x0 = object_x0 + gradient_x0 * (object_x1 - object_x0);
-	gradient_y0 = object_y0 + gradient_y0 * (object_y1 - object_y0);
-	gradient_x1 = object_x0 + gradient_x1 * (object_x1 - object_x0);
-	gradient_y1 = object_y0 + gradient_y1 * (object_y1 - object_y0);
+	gradient_x0 = object_x0 + svgtiny_parse_length(state->gradient_x1,
+			object_x1 - object_x0, *state);
+	gradient_y0 = object_y0 + svgtiny_parse_length(state->gradient_y1,
+			object_y1 - object_y0, *state);
+	gradient_x1 = object_x0 + svgtiny_parse_length(state->gradient_x2,
+			object_x1 - object_x0, *state);
+	gradient_y1 = object_y0 + svgtiny_parse_length(state->gradient_y2,
+			object_y1 - object_y0, *state);
 	gradient_dx = gradient_x1 - gradient_x0;
 	gradient_dy = gradient_y1 - gradient_y0;
 	#ifdef GRADIENT_DEBUG
@@ -199,7 +222,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		}
 		shape->path = p;
 		shape->path_length = 13;
-		shape->fill = svgtiny_TRANSPARENT; 
+		shape->fill = svgtiny_TRANSPARENT;
 		shape->stroke = svgtiny_RGB(0, 0xff, 0);
 		state->diagram->shape_count++;
 	}*/
@@ -312,10 +335,10 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	b = min_pt == 0 ? pts_count - 1 : min_pt - 1;
 	while (a != b) {
 		float mean_r = (pts[t].r + pts[a].r + pts[b].r) / 3;
-		fprintf(stderr, "triangle: t %i %.3f a %i %.3f b %i %.3f "
+		/*fprintf(stderr, "triangle: t %i %.3f a %i %.3f b %i %.3f "
 				"mean_r %.3f\n",
 				t, pts[t].r, a, pts[a].r, b, pts[b].r,
-				mean_r);
+				mean_r);*/
 		while (current_stop != stop_count && current_stop_r < mean_r) {
 			current_stop++;
 			if (current_stop == stop_count)
@@ -403,7 +426,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		}
 		shape->path = p;
 		shape->path_length = 7;
-		shape->fill = svgtiny_TRANSPARENT; 
+		shape->fill = svgtiny_TRANSPARENT;
 		shape->stroke = svgtiny_RGB(0xff, 0, 0);
 		state->diagram->shape_count++;
 	}

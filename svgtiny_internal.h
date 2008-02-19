@@ -37,16 +37,19 @@ struct svgtiny_parse_state {
 
 	/* gradients */
 	unsigned int linear_gradient_stop_count;
+	const char *gradient_x1, *gradient_y1, *gradient_x2, *gradient_y2;
 	struct svgtiny_gradient_stop gradient_stop[svgtiny_MAX_STOPS];
 };
 
 
 /* svgtiny.c */
-void svgtiny_transform_path(float *p, unsigned int n,
-		struct svgtiny_parse_state *state);
+float svgtiny_parse_length(const char *s, int viewport_size,
+		const struct svgtiny_parse_state state);
 void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
 struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state);
+void svgtiny_transform_path(float *p, unsigned int n,
+		struct svgtiny_parse_state *state);
 
 /* svgtiny_gradient.c */
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state);

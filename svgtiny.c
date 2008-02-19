@@ -36,8 +36,6 @@ static svgtiny_code svgtiny_parse_text(xmlNode *text,
 static void svgtiny_parse_position_attributes(const xmlNode *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height);
-static float svgtiny_parse_length(const char *s, int viewport_size,
-		const struct svgtiny_parse_state state);
 static void svgtiny_parse_paint_attributes(const xmlNode *node,
 		struct svgtiny_parse_state *state);
 static void svgtiny_parse_font_attributes(const xmlNode *node,
