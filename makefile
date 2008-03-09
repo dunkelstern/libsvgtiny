@@ -18,12 +18,12 @@ INSTALL = install
 ifeq ($(TARGET),riscos)
 GCCSDK_INSTALL_CROSSBIN ?= /home/riscos/cross/bin
 GCCSDK_INSTALL_ENV ?= /home/riscos/env
-CC = $(GCCSDK_INSTALL_CROSSBIN)/gcc
-AR = $(GCCSDK_INSTALL_CROSSBIN)/ar
+CC ?= $(GCCSDK_INSTALL_CROSSBIN)/gcc
+AR ?= $(GCCSDK_INSTALL_CROSSBIN)/ar
 CFLAGS += -Driscos -mpoke-function-name -I$(GCCSDK_INSTALL_ENV)/include \
 	-I$(GCCSDK_INSTALL_ENV)/include/libxml2
 LIBS = -L$(GCCSDK_INSTALL_ENV)/lib -lxml2 -lz
-EXEEXT = ,ff8
+EXEEXT ?= ,ff8
 PREFIX = $(GCCSDK_INSTALL_ENV)
 else
 CFLAGS += -g `xml2-config --cflags` -fgnu89-inline
