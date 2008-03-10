@@ -15,6 +15,7 @@
 int main(int argc, char *argv[])
 {
 	FILE *fd;
+	float scale = 1.0;
 	struct stat sb;
 	char *buffer;
 	size_t size;
@@ -22,8 +23,8 @@ int main(int argc, char *argv[])
 	struct svgtiny_diagram *diagram;
 	svgtiny_code code;
 
-	if (argc != 2) {
-		fprintf(stderr, "Usage: %s FILE\n", argv[0]);
+	if (argc != 2 && argc != 3) {
+		fprintf(stderr, "Usage: %s FILE [SCALE]\n", argv[0]);
 		return 1;
 	}
 
@@ -54,6 +55,13 @@ int main(int argc, char *argv[])
 	}
 
 	fclose(fd);
+
+	/* read scale argument */
+	if (argc == 3) {
+		scale = atof(argv[2]);
+		if (scale == 0)
+			scale = 1.0;
+	}
 
 	/* create svgtiny object */
 	diagram = svgtiny_create();
@@ -90,7 +98,8 @@ int main(int argc, char *argv[])
 
 	free(buffer);
 
-	printf("viewbox 0 0 %i %i\n", diagram->width, diagram->height);
+	printf("viewbox 0 0 %g %g\n",
+			scale * diagram->width, scale * diagram->height);
 
 	for (unsigned int i = 0; i != diagram->shape_count; i++) {
 		if (diagram->shape[i].fill == svgtiny_TRANSPARENT)
@@ -101,7 +110,8 @@ int main(int argc, char *argv[])
 			printf("stroke none ");
 		else
 			printf("stroke #%.6x ", diagram->shape[i].stroke);
-		printf("stroke-width %i ", diagram->shape[i].stroke_width);
+		printf("stroke-width %g ",
+				scale * diagram->shape[i].stroke_width);
 		if (diagram->shape[i].path) {
 			printf("path '");
 			for (unsigned int j = 0;
@@ -109,8 +119,8 @@ int main(int argc, char *argv[])
 				switch ((int) diagram->shape[i].path[j]) {
 				case svgtiny_PATH_MOVE:
 					printf("M %g %g ",
-						diagram->shape[i].path[j + 1],
-						diagram->shape[i].path[j + 2]);
+					scale * diagram->shape[i].path[j + 1],
+					scale * diagram->shape[i].path[j + 2]);
 					j += 3;
 					break;
 				case svgtiny_PATH_CLOSE:
@@ -119,18 +129,18 @@ int main(int argc, char *argv[])
 					break;
 				case svgtiny_PATH_LINE:
 					printf("L %g %g ",
-						diagram->shape[i].path[j + 1],
-						diagram->shape[i].path[j + 2]);
+					scale * diagram->shape[i].path[j + 1],
+					scale * diagram->shape[i].path[j + 2]);
 					j += 3;
 					break;
 				case svgtiny_PATH_BEZIER:
 					printf("C %g %g %g %g %g %g ",
-						diagram->shape[i].path[j + 1],
-						diagram->shape[i].path[j + 2],
-						diagram->shape[i].path[j + 3],
-						diagram->shape[i].path[j + 4],
-						diagram->shape[i].path[j + 5],
-						diagram->shape[i].path[j + 6]);
+					scale * diagram->shape[i].path[j + 1],
+					scale * diagram->shape[i].path[j + 2],
+					scale * diagram->shape[i].path[j + 3],
+					scale * diagram->shape[i].path[j + 4],
+					scale * diagram->shape[i].path[j + 5],
+					scale * diagram->shape[i].path[j + 6]);
 					j += 7;
 					break;
 				default:
@@ -141,8 +151,8 @@ int main(int argc, char *argv[])
 			printf("' ");
 		} else if (diagram->shape[i].text) {
 			printf("text %g %g '%s' ",
-					diagram->shape[i].text_x,
-					diagram->shape[i].text_y,
+					scale * diagram->shape[i].text_x,
+					scale * diagram->shape[i].text_y,
 					diagram->shape[i].text);
 		}
 		printf("\n");
