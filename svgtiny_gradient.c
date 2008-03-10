@@ -7,6 +7,7 @@
 
 #define _GNU_SOURCE  /* for strndup */
 #include <assert.h>
+#include <math.h>
 #include <string.h>
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
@@ -18,6 +19,7 @@ static svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 static float svgtiny_parse_gradient_offset(const char *s);
 static void svgtiny_path_bbox(float *p, unsigned int n,
 		float *x0, float *y0, float *x1, float *y1);
+static void svgtiny_invert_matrix(float *m, float *inv);
 
 
 /**
@@ -33,6 +35,13 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	state->gradient_y1 = "0%";
 	state->gradient_x2 = "100%";
 	state->gradient_y2 = "0%";
+	state->gradient_user_space_on_use = false;
+	state->gradient_transform.a = 1;
+	state->gradient_transform.b = 0;
+	state->gradient_transform.c = 0;
+	state->gradient_transform.d = 1;
+	state->gradient_transform.e = 0;
+	state->gradient_transform.f = 0;
 
 	xmlNode *gradient = svgtiny_find_element_by_id(
 			(xmlNode *) state->document, id);
@@ -74,6 +83,25 @@ svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 			state->gradient_x2 = content;
 		else if (strcmp(name, "y2") == 0)
 			state->gradient_y2 = content;
+		else if (strcmp(name, "gradientUnits") == 0)
+			state->gradient_user_space_on_use =
+					strcmp(content, "userSpaceOnUse") == 0;
+		else if (strcmp(name, "gradientTransform") == 0) {
+			float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+			char *s = strdup(content);
+			if (!s)
+				return svgtiny_OUT_OF_MEMORY;
+			svgtiny_parse_transform(s, &a, &b, &c, &d, &e, &f);
+			free(s);
+			fprintf(stderr, "transform %g %g %g %g %g %g\n",
+					a, b, c, d, e, f);
+			state->gradient_transform.a = a;
+			state->gradient_transform.b = b;
+			state->gradient_transform.c = c;
+			state->gradient_transform.d = d;
+			state->gradient_transform.e = e;
+			state->gradient_transform.f = f;
+		}
         }
 
 	unsigned int i = 0;
@@ -170,14 +198,29 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			state->gradient_x2, state->gradient_y2);
 	float gradient_x0, gradient_y0, gradient_x1, gradient_y1,
 	      gradient_dx, gradient_dy;
-	gradient_x0 = object_x0 + svgtiny_parse_length(state->gradient_x1,
-			object_x1 - object_x0, *state);
-	gradient_y0 = object_y0 + svgtiny_parse_length(state->gradient_y1,
-			object_y1 - object_y0, *state);
-	gradient_x1 = object_x0 + svgtiny_parse_length(state->gradient_x2,
-			object_x1 - object_x0, *state);
-	gradient_y1 = object_y0 + svgtiny_parse_length(state->gradient_y2,
-			object_y1 - object_y0, *state);
+	if (!state->gradient_user_space_on_use) {
+		gradient_x0 = object_x0 +
+				svgtiny_parse_length(state->gradient_x1,
+					object_x1 - object_x0, *state);
+		gradient_y0 = object_y0 +
+				svgtiny_parse_length(state->gradient_y1,
+					object_y1 - object_y0, *state);
+		gradient_x1 = object_x0 +
+				svgtiny_parse_length(state->gradient_x2,
+					object_x1 - object_x0, *state);
+		gradient_y1 = object_y0 +
+				svgtiny_parse_length(state->gradient_y2,
+					object_y1 - object_y0, *state);
+	} else {
+		gradient_x0 = svgtiny_parse_length(state->gradient_x1,
+				state->viewport_width, *state);
+		gradient_y0 = svgtiny_parse_length(state->gradient_y1,
+				state->viewport_height, *state);
+		gradient_x1 = svgtiny_parse_length(state->gradient_x2,
+				state->viewport_width, *state);
+		gradient_y1 = svgtiny_parse_length(state->gradient_y2,
+				state->viewport_height, *state);
+	}
 	gradient_dx = gradient_x1 - gradient_x0;
 	gradient_dy = gradient_y1 - gradient_y0;
 	#ifdef GRADIENT_DEBUG
@@ -227,9 +270,19 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		state->diagram->shape_count++;
 	}*/
 
+	/* invert gradient transform for applying to vertices */
+	float trans[6];
+	svgtiny_invert_matrix(&state->gradient_transform.a, trans);
+	fprintf(stderr, "inverse transform %g %g %g %g %g %g\n",
+			trans[0], trans[1], trans[2], trans[3],
+			trans[4], trans[5]);
+
 	/* compute points on the path for triangle vertices */
+	/* r, r0, r1 are distance along gradient vector */
 	unsigned int steps = 10;
-	float x0, y0, x1, y1;
+	float x0, y0, x0_trans, y0_trans, r0; /* segment start point */
+	float x1, y1, x1_trans, y1_trans, r1; /* segment end point */
+	float c0x, c0y, c1x, c1y; /* segment control points (beziers only) */
 	float gradient_norm_squared = gradient_dx * gradient_dx +
 	                              gradient_dy * gradient_dy;
 	struct grad_point {
@@ -242,84 +295,107 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	float min_r = 1000;
 	unsigned int min_pt = 0;
 	for (unsigned int j = 0; j != n; ) {
-		switch ((int) p[j]) {
-		case svgtiny_PATH_MOVE:
+		int segment_type = (int) p[j];
+
+		if (segment_type == svgtiny_PATH_MOVE) {
 			x0 = p[j + 1];
 			y0 = p[j + 2];
 			j += 3;
-			break;
-		case svgtiny_PATH_LINE:
-		case svgtiny_PATH_CLOSE:
-			if (((int) p[j]) == svgtiny_PATH_LINE) {
-				x1 = p[j + 1];
-				y1 = p[j + 2];
-				j += 3;
-			} else {
-				x1 = p[1];
-				y1 = p[2];
-				j++;
-			}
-			fprintf(stderr, "line: ");
-			for (unsigned int z = 0; z != steps; z++) {
-				float f, x, y, r;
-				f = (float) z / (float) steps;
-				x = x0 + f * (x1 - x0);
-				y = y0 + f * (y1 - y0);
-				r = ((x - gradient_x0) * gradient_dx +
-					(y - gradient_y0) * gradient_dy) /
-					gradient_norm_squared;
-				fprintf(stderr, "(%g %g [%g]) ", x, y, r);
-				pts[pts_count].x = x;
-				pts[pts_count].y = y;
-				pts[pts_count].r = r;
-				if (r < min_r) {
-					min_r = r;
-					min_pt = pts_count;
-				}
-				pts_count++;
-			}
-			fprintf(stderr, "\n");
-			x0 = x1;
-			y0 = y1;
-			break;
-		case svgtiny_PATH_BEZIER:
-			fprintf(stderr, "bezier: ");
-			for (unsigned int z = 0; z != steps; z++) {
-				float t, x, y, r;
-				t = (float) z / (float) steps;
-				x = (1-t) * (1-t) * (1-t) * x0 +
-					3 * t * (1-t) * (1-t) * p[j + 1] +
-					3 * t * t * (1-t) * p[j + 3] +
-					t * t * t * p[j + 5];
-				y = (1-t) * (1-t) * (1-t) * y0 +
-					3 * t * (1-t) * (1-t) * p[j + 2] +
-					3 * t * t * (1-t) * p[j + 4] +
-					t * t * t * p[j + 6];
-				r = ((x - gradient_x0) * gradient_dx +
-					(y - gradient_y0) * gradient_dy) /
-					gradient_norm_squared;
-				fprintf(stderr, "(%g %g [%g]) ", x, y, r);
-				pts[pts_count].x = x;
-				pts[pts_count].y = y;
-				pts[pts_count].r = r;
-				if (r < min_r) {
-					min_r = r;
-					min_pt = pts_count;
-				}
-				pts_count++;
-			}
-			fprintf(stderr, "\n");
-			x0 = p[j + 5];
-			y0 = p[j + 6];
-			j += 7;
-			break;
-		default:
-			assert(0);
+			continue;
 		}
+
+		assert(segment_type == svgtiny_PATH_CLOSE ||
+				segment_type == svgtiny_PATH_LINE ||
+				segment_type == svgtiny_PATH_BEZIER);
+
+		/* start point (x0, y0) */
+		x0_trans = trans[0]*x0 + trans[2]*y0 + trans[4];
+		y0_trans = trans[1]*x0 + trans[3]*y0 + trans[5];
+		r0 = ((x0_trans - gradient_x0) * gradient_dx +
+				(y0_trans - gradient_y0) * gradient_dy) /
+				gradient_norm_squared;
+		pts[pts_count].x = x0;
+		pts[pts_count].y = y0;
+		pts[pts_count].r = r0;
+		if (r0 < min_r) {
+			min_r = r0;
+			min_pt = pts_count;
+		}
+		pts_count++;
+
+		/* end point (x1, y1) */
+		if (segment_type == svgtiny_PATH_LINE) {
+			x1 = p[j + 1];
+			y1 = p[j + 2];
+			j += 3;
+		} else if (segment_type == svgtiny_PATH_CLOSE) {
+			x1 = p[1];
+			y1 = p[2];
+			j++;
+		} else /* svgtiny_PATH_BEZIER */ {
+			c0x = p[j + 1];
+			c0y = p[j + 2];
+			c1x = p[j + 3];
+			c1y = p[j + 4];
+			x1 = p[j + 5];
+			y1 = p[j + 6];
+			j += 7;
+		}
+		x1_trans = trans[0]*x1 + trans[2]*y1 + trans[4];
+		y1_trans = trans[1]*x1 + trans[3]*y1 + trans[5];
+		r1 = ((x1_trans - gradient_x0) * gradient_dx +
+				(y1_trans - gradient_y0) * gradient_dy) /
+				gradient_norm_squared;
+
+		/* determine steps from change in r */
+		steps = ceilf(fabsf(r1 - r0) / 0.05);
+		if (steps == 0)
+			steps = 1;
+		fprintf(stderr, "r0 %g, r1 %g, steps %i\n",
+				r0, r1, steps);
+
+		/* loop through intermediate points */
+		for (unsigned int z = 1; z != steps; z++) {
+			float t, x, y, x_trans, y_trans, r;
+			t = (float) z / (float) steps;
+			if (segment_type == svgtiny_PATH_BEZIER) {
+				x = (1-t) * (1-t) * (1-t) * x0 +
+					3 * t * (1-t) * (1-t) * c0x +
+					3 * t * t * (1-t) * c1x +
+					t * t * t * x1;
+				y = (1-t) * (1-t) * (1-t) * y0 +
+					3 * t * (1-t) * (1-t) * c0y +
+					3 * t * t * (1-t) * c1y +
+					t * t * t * y1;
+			} else {
+				x = (1-t) * x0 + t * x1;
+				y = (1-t) * y0 + t * y1;
+			}
+			x_trans = trans[0]*x + trans[2]*y + trans[4];
+			y_trans = trans[1]*x + trans[3]*y + trans[5];
+			r = ((x_trans - gradient_x0) * gradient_dx +
+					(y_trans - gradient_y0) * gradient_dy) /
+					gradient_norm_squared;
+			fprintf(stderr, "(%g %g [%g]) ", x, y, r);
+			pts[pts_count].x = x;
+			pts[pts_count].y = y;
+			pts[pts_count].r = r;
+			if (r < min_r) {
+				min_r = r;
+				min_pt = pts_count;
+			}
+			pts_count++;
+		}
+		fprintf(stderr, "\n");
+
+		/* next segment start point is this segment end point */
+		x0 = x1;
+		y0 = y1;
 	}
 	fprintf(stderr, "pts_count %i, min_pt %i, min_r %.3f\n",
 			pts_count, min_pt, min_r);
 
+	/* render triangles */
 	unsigned int stop_count = state->linear_gradient_stop_count;
 	assert(2 <= stop_count);
 	unsigned int current_stop = 0;
@@ -448,6 +524,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		shape->text_y = state->ctm.b * pts[i].x +
 				state->ctm.d * pts[i].y + state->ctm.f;
 		shape->fill = svgtiny_RGB(0, 0, 0);
+		shape->stroke = svgtiny_TRANSPARENT;
 		state->diagram->shape_count++;
 	}
 	#endif
@@ -511,6 +588,21 @@ void svgtiny_path_bbox(float *p, unsigned int n,
 			j += 2;
 		}
 	}
+}
+
+
+/**
+ * Invert a transformation matrix.
+ */
+void svgtiny_invert_matrix(float *m, float *inv)
+{
+	float determinant = m[0]*m[3] - m[1]*m[2];
+	inv[0] = m[3] / determinant;
+	inv[1] = -m[1] / determinant;
+	inv[2] = -m[2] / determinant;
+	inv[3] = m[0] / determinant;
+	inv[4] = (m[2]*m[5] - m[3]*m[4]) / determinant;
+	inv[5] = (m[1]*m[4] - m[0]*m[5]) / determinant;
 }
 
 

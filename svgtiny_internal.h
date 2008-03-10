@@ -8,6 +8,8 @@
 #ifndef SVGTINY_INTERNAL_H
 #define SVGTINY_INTERNAL_H
 
+#include <stdbool.h>
+
 struct svgtiny_gradient_stop {
 	float offset;
 	svgtiny_colour color;
@@ -39,6 +41,10 @@ struct svgtiny_parse_state {
 	unsigned int linear_gradient_stop_count;
 	const char *gradient_x1, *gradient_y1, *gradient_x2, *gradient_y2;
 	struct svgtiny_gradient_stop gradient_stop[svgtiny_MAX_STOPS];
+	bool gradient_user_space_on_use;
+	struct {
+		float a, b, c, d, e, f;
+	} gradient_transform;
 };
 
 
@@ -47,6 +53,8 @@ float svgtiny_parse_length(const char *s, int viewport_size,
 		const struct svgtiny_parse_state state);
 void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
+void svgtiny_parse_transform(char *s, float *ma, float *mb,
+		float *mc, float *md, float *me, float *mf);
 struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state);
 void svgtiny_transform_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);

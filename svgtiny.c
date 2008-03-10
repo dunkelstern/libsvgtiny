@@ -879,83 +879,93 @@ void svgtiny_parse_font_attributes(const xmlNode *node,
 void svgtiny_parse_transform_attributes(xmlNode *node,
 		struct svgtiny_parse_state *state)
 {
-	char *transform, *s;
+	char *transform;
+
+	/* parse transform */
+	transform = (char *) xmlGetProp(node, (const xmlChar *) "transform");
+	if (transform) {
+		svgtiny_parse_transform(transform, &state->ctm.a, &state->ctm.b,
+				&state->ctm.c, &state->ctm.d,
+				&state->ctm.e, &state->ctm.f);
+		xmlFree(transform);
+	}
+}
+
+
+/**
+ * Parse a transform string.
+ */
+
+void svgtiny_parse_transform(char *s, float *ma, float *mb,
+		float *mc, float *md, float *me, float *mf)
+{
 	float a, b, c, d, e, f;
-	float ctm_a, ctm_b, ctm_c, ctm_d, ctm_e, ctm_f;
+	float za, zb, zc, zd, ze, zf;
 	float angle, x, y;
 	int n;
 
-	/* parse transform */
-	s = transform = (char *) xmlGetProp(node,
-			(const xmlChar *) "transform");
-	if (transform) {
-		for (unsigned int i = 0; transform[i]; i++)
-			if (transform[i] == ',')
-				transform[i] = ' ';
+	for (unsigned int i = 0; s[i]; i++)
+		if (s[i] == ',')
+			s[i] = ' ';
 
-		while (*s) {
-			a = d = 1;
-			b = c = 0;
-			e = f = 0;
-			if (sscanf(s, "matrix (%f %f %f %f %f %f) %n",
+	while (*s) {
+		a = d = 1;
+		b = c = 0;
+		e = f = 0;
+		if (sscanf(s, "matrix (%f %f %f %f %f %f) %n",
 					&a, &b, &c, &d, &e, &f, &n) == 6)
-				;
-			else if (sscanf(s, "translate (%f %f) %n",
+			;
+		else if (sscanf(s, "translate (%f %f) %n",
 					&e, &f, &n) == 2)
-				;
-			else if (sscanf(s, "translate (%f) %n",
+			;
+		else if (sscanf(s, "translate (%f) %n",
 					&e, &n) == 1)
-				;
-			else if (sscanf(s, "scale (%f %f) %n",
+			;
+		else if (sscanf(s, "scale (%f %f) %n",
 					&a, &d, &n) == 2)
-				;
-			else if (sscanf(s, "scale (%f) %n",
+			;
+		else if (sscanf(s, "scale (%f) %n",
 					&a, &n) == 1)
-				d = a;
-			else if (sscanf(s, "rotate (%f %f %f) %n",
+			d = a;
+		else if (sscanf(s, "rotate (%f %f %f) %n",
 					&angle, &x, &y, &n) == 3) {
-				angle = angle / 180 * M_PI;
-				a = cos(angle);
-				b = sin(angle);
-				c = -sin(angle);
-				d = cos(angle);
-				e = -x * cos(angle) + y * sin(angle) + x;
-				f = -x * sin(angle) - y * cos(angle) + y;
-	                } else if (sscanf(s, "rotate (%f) %n",
+			angle = angle / 180 * M_PI;
+			a = cos(angle);
+			b = sin(angle);
+			c = -sin(angle);
+			d = cos(angle);
+			e = -x * cos(angle) + y * sin(angle) + x;
+			f = -x * sin(angle) - y * cos(angle) + y;
+		} else if (sscanf(s, "rotate (%f) %n",
 					&angle, &n) == 1) {
-				angle = angle / 180 * M_PI;
-				a = cos(angle);
-				b = sin(angle);
-				c = -sin(angle);
-				d = cos(angle);
-	                } else if (sscanf(s, "skewX (%f) %n",
+			angle = angle / 180 * M_PI;
+			a = cos(angle);
+			b = sin(angle);
+			c = -sin(angle);
+			d = cos(angle);
+		} else if (sscanf(s, "skewX (%f) %n",
 					&angle, &n) == 1) {
-				angle = angle / 180 * M_PI;
-				c = tan(angle);
-	                } else if (sscanf(s, "skewY (%f) %n",
+			angle = angle / 180 * M_PI;
+			c = tan(angle);
+		} else if (sscanf(s, "skewY (%f) %n",
 					&angle, &n) == 1) {
-				angle = angle / 180 * M_PI;
-				b = tan(angle);
-	                } else
-				break;
-			ctm_a = state->ctm.a * a + state->ctm.c * b;
-			ctm_b = state->ctm.b * a + state->ctm.d * b;
-			ctm_c = state->ctm.a * c + state->ctm.c * d;
-			ctm_d = state->ctm.b * c + state->ctm.d * d;
-			ctm_e = state->ctm.a * e + state->ctm.c * f +
-					state->ctm.e;
-			ctm_f = state->ctm.b * e + state->ctm.d * f +
-					state->ctm.f;
-			state->ctm.a = ctm_a;
-			state->ctm.b = ctm_b;
-			state->ctm.c = ctm_c;
-			state->ctm.d = ctm_d;
-			state->ctm.e = ctm_e;
-			state->ctm.f = ctm_f;
-			s += n;
-		}
-
-		xmlFree(transform);
+			angle = angle / 180 * M_PI;
+			b = tan(angle);
+		} else
+			break;
+		za = *ma * a + *mc * b;
+		zb = *mb * a + *md * b;
+		zc = *ma * c + *mc * d;
+		zd = *mb * c + *md * d;
+		ze = *ma * e + *mc * f + *me;
+		zf = *mb * e + *md * f + *mf;
+		*ma = za;
+		*mb = zb;
+		*mc = zc;
+		*md = zd;
+		*me = ze;
+		*mf = zf;
+		s += n;
 	}
 }
 
