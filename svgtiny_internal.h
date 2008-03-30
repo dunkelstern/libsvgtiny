@@ -47,6 +47,7 @@ struct svgtiny_parse_state {
 	} gradient_transform;
 };
 
+struct svgtiny_list;
 
 /* svgtiny.c */
 float svgtiny_parse_length(const char *s, int viewport_size,
@@ -64,6 +65,16 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state);
 svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
 xmlNode *svgtiny_find_element_by_id(xmlNode *node, const char *id);
+
+/* svgtiny_list.c */
+struct svgtiny_list *svgtiny_list_create(size_t item_size);
+unsigned int svgtiny_list_size(struct svgtiny_list *list);
+svgtiny_code svgtiny_list_resize(struct svgtiny_list *list,
+		unsigned int new_size);
+void *svgtiny_list_get(struct svgtiny_list *list,
+		unsigned int i);
+void *svgtiny_list_push(struct svgtiny_list *list);
+void svgtiny_list_free(struct svgtiny_list *list);
 
 /* colors.gperf */
 const struct svgtiny_named_color *

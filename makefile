@@ -5,7 +5,7 @@
 # Copyright 2008 James Bursa <james@semichrome.net>
 #
 
-SOURCE = svgtiny.c svgtiny_gradient.c colors.c
+SOURCE = svgtiny.c svgtiny_gradient.c svgtiny_list.c colors.c
 HDRS = svgtiny.h svgtiny_internal.h
 
 CFLAGS = -std=c99 -W -Wall -Wundef -Wpointer-arith -Wcast-qual \
@@ -18,8 +18,8 @@ INSTALL = install
 ifeq ($(TARGET),riscos)
 GCCSDK_INSTALL_CROSSBIN ?= /home/riscos/cross/bin
 GCCSDK_INSTALL_ENV ?= /home/riscos/env
-CC ?= $(GCCSDK_INSTALL_CROSSBIN)/gcc
-AR ?= $(GCCSDK_INSTALL_CROSSBIN)/ar
+CC = $(GCCSDK_INSTALL_CROSSBIN)/gcc
+AR = $(GCCSDK_INSTALL_CROSSBIN)/ar
 CFLAGS += -Driscos -mpoke-function-name -I$(GCCSDK_INSTALL_ENV)/include \
 	-I$(GCCSDK_INSTALL_ENV)/include/libxml2
 LIBS = -L$(GCCSDK_INSTALL_ENV)/lib -lxml2 -lz
