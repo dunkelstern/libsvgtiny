@@ -16,30 +16,30 @@ ARFLAGS = cr
 INSTALL = install
 
 ifeq ($(TARGET),riscos)
-GCCSDK_INSTALL_CROSSBIN ?= /home/riscos/cross/bin
-GCCSDK_INSTALL_ENV ?= /home/riscos/env
-CC = $(GCCSDK_INSTALL_CROSSBIN)/gcc
-AR = $(GCCSDK_INSTALL_CROSSBIN)/ar
-CFLAGS += -Driscos -mpoke-function-name -I$(GCCSDK_INSTALL_ENV)/include \
+  GCCSDK_INSTALL_CROSSBIN ?= /home/riscos/cross/bin
+  GCCSDK_INSTALL_ENV ?= /home/riscos/env
+  CC := $(wildcard $(GCCSDK_INSTALL_CROSSBIN)/*gcc)
+  AR := $(wildcard $(GCCSDK_INSTALL_CROSSBIN)/*ar)
+  CFLAGS += -Driscos -mpoke-function-name -I$(GCCSDK_INSTALL_ENV)/include \
 	-I$(GCCSDK_INSTALL_ENV)/include/libxml2
-LIBS = -L$(GCCSDK_INSTALL_ENV)/lib -lxml2 -lz
-EXEEXT ?= ,ff8
-PREFIX = $(GCCSDK_INSTALL_ENV)
+  LIBS = -L$(GCCSDK_INSTALL_ENV)/lib -lxml2 -lz
+  ifneq (,$(findstring arm-unknown-riscos-gcc,$(CC)))
+    EXEEXT := ,e1f
+    SUBTARGET := -elf-
+  else
+    EXEEXT := ,ff8
+    SUBTARGET := -aof-
+  endif
+  PREFIX = $(GCCSDK_INSTALL_ENV)
 else
-CFLAGS += -g `xml2-config --cflags` -fgnu89-inline
-LIBS = `xml2-config --libs`
-PREFIX = /usr/local
+  CFLAGS += -g `xml2-config --cflags` -fgnu89-inline
+  LIBS = `xml2-config --libs`
+  PREFIX = /usr/local
 endif
 
-ifeq ($(TARGET),)
-OBJDIR = objects
-LIBDIR = lib
-BINDIR = bin
-else
-OBJDIR = $(TARGET)-objects
-LIBDIR = $(TARGET)-lib
-BINDIR = $(TARGET)-bin
-endif
+OBJDIR = $(TARGET)$(SUBTARGET)objects
+LIBDIR = $(TARGET)$(SUBTARGET)lib
+BINDIR = $(TARGET)$(SUBTARGET)bin
 
 OBJS = $(addprefix $(OBJDIR)/, $(SOURCE:.c=.o))
 
