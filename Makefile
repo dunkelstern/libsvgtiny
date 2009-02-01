@@ -37,9 +37,9 @@ else
   PREFIX = /usr/local
 endif
 
-OBJDIR = $(TARGET)$(SUBTARGET)objects
-LIBDIR = $(TARGET)$(SUBTARGET)lib
-BINDIR = $(TARGET)$(SUBTARGET)bin
+OBJDIR = build-$(TARGET)$(SUBTARGET)objects
+LIBDIR = build-$(TARGET)$(SUBTARGET)lib
+BINDIR = build-$(TARGET)$(SUBTARGET)bin
 
 OBJS = $(addprefix $(OBJDIR)/, $(SOURCE:.c=.o))
 
@@ -71,5 +71,4 @@ install: $(LIBDIR)/libsvgtiny.a
 	$(INSTALL) -t $(PREFIX)/include svgtiny.h
 
 clean:
-	-rm $(OBJS) $(LIBDIR)/libsvgtiny.a $(BINDIR)/svgtiny_test$(EXEEXT) colors.c
-
+	-rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) colors.c
