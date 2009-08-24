@@ -45,7 +45,7 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 
 	xmlNode *gradient = svgtiny_find_element_by_id(
 			(xmlNode *) state->document, id);
-	fprintf(stderr, "gradient %p\n", gradient);
+	fprintf(stderr, "gradient %p\n", (void *) gradient);
 	if (!gradient) {
 		fprintf(stderr, "gradient \"%s\" not found\n", id);
 		return;
@@ -280,9 +280,10 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	/* compute points on the path for triangle vertices */
 	/* r, r0, r1 are distance along gradient vector */
 	unsigned int steps = 10;
-	float x0, y0, x0_trans, y0_trans, r0; /* segment start point */
+	float x0 = 0, y0 = 0, x0_trans, y0_trans, r0; /* segment start point */
 	float x1, y1, x1_trans, y1_trans, r1; /* segment end point */
-	float c0x, c0y, c1x, c1y; /* segment control points (beziers only) */
+	/* segment control points (beziers only) */
+	float c0x = 0, c0y = 0, c1x = 0, c1y = 0;
 	float gradient_norm_squared = gradient_dx * gradient_dx +
 	                              gradient_dy * gradient_dy;
 	struct grad_point {

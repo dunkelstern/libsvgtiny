@@ -709,6 +709,8 @@ float svgtiny_parse_length(const char *s, int viewport_size,
 	float n = atof((const char *) s);
 	float font_size = 20; /*css_len2px(&state.style.font_size.value.length, 0);*/
 
+	UNUSED(state);
+
 	if (unit[0] == 0) {
 		return n;
 	} else if (unit[0] == '%') {
@@ -807,7 +809,7 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 
 	} else if (10 <= len && s[0] == 'r' && s[1] == 'g' && s[2] == 'b' &&
 			s[3] == '(' && s[len - 1] == ')') {
-		if (sscanf(s + 4, "%i,%i,%i", &r, &g, &b) == 3)
+		if (sscanf(s + 4, "%u,%u,%u", &r, &g, &b) == 3)
 			*c = svgtiny_RGB(r, g, b);
 		else if (sscanf(s + 4, "%f%%,%f%%,%f%%", &rf, &gf, &bf) == 3) {
 			b = bf * 255 / 100;
@@ -856,6 +858,8 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 void svgtiny_parse_font_attributes(const xmlNode *node,
 		struct svgtiny_parse_state *state)
 {
+	UNUSED(state);
+
 	for (const xmlAttr *attr = node->properties; attr; attr = attr->next) {
 		if (strcmp((const char *) attr->name, "font-size") == 0) {
 			/*if (css_parse_length(

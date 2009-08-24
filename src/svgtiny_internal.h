@@ -10,6 +10,10 @@
 
 #include <stdbool.h>
 
+#ifndef UNUSED
+#define UNUSED(x) ((void) (x))
+#endif
+
 struct svgtiny_gradient_stop {
 	float offset;
 	svgtiny_colour color;
