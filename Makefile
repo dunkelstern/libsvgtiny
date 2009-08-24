@@ -23,6 +23,17 @@ else
   CFLAGS := $(CFLAGS) -Dinline="__inline__"
 endif
 
+# LibXML2
+ifneq ($(PKGCONFIG),)
+  CFLAGS := $(CFLAGS) \
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --cflags libxml-2.0)
+  LDFLAGS := $(LDFLAGS) \
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libxml-2.0)
+else
+  CFLAGS := $(CFLAGS) -I$(PREFIX)/include/libxml2
+  LDFLAGS := $(CFLAGS) -lxml2
+endif
+
 include build/makefiles/Makefile.top
 
 # Extra installation rules
