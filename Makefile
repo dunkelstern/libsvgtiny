@@ -7,6 +7,8 @@ COMPONENT_TYPE ?= lib-static
 # Setup the tooling
 include build/makefiles/Makefile.tools
 
+TESTRUNNER := $(ECHO)
+
 # Toolchain flags
 WARNFLAGS := -Wall -Wundef -Wpointer-arith -Wcast-align \
 	-Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes \
