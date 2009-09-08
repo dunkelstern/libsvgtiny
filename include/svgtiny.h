@@ -12,7 +12,7 @@
 
 typedef int svgtiny_colour;
 #define svgtiny_TRANSPARENT 0x1000000
-#ifdef riscos
+#ifdef __riscos__
 #define svgtiny_RGB(r, g, b) ((b) << 16 | (g) << 8 | (r))
 #define svgtiny_RED(c) ((c) & 0xff)
 #define svgtiny_GREEN(c) (((c) >> 8) & 0xff)
