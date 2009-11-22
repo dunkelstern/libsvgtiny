@@ -240,7 +240,7 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
 	while (*s) {
 		char command[2];
 		int plot_command;
-		float x, y, x1, y1, x2, y2;
+		float x, y, x1, y1, x2, y2, rx, ry, rotation, large_arc, sweep;
 		int n;
 
 		/* moveto (M, m), lineto (L, l) (2 arguments) */
@@ -395,13 +395,38 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
 			} while (sscanf(s, "%f %f %n",
 					&x, &y, &n) == 2);
 
+		/* elliptical arc (A, a) (7 arguments) */
+		} else if (sscanf(s, " %1[Aa] %f %f %f %f %f %f %f %n", command,
+				&rx, &ry, &rotation, &large_arc, &sweep,
+				&x, &y, &n) == 8) {
+			do {
+				p[i++] = svgtiny_PATH_LINE;
+				if (*command == 'a') {
+					x += last_x;
+					y += last_y;
+				}
+				p[i++] = last_cubic_x = last_quad_x = last_x
+						= x;
+				p[i++] = last_cubic_y = last_quad_y = last_y
+						= y;
+				s += n;
+			} while (sscanf(s, "%f %f %f %f %f %f %f %n",
+				&rx, &ry, &rotation, &large_arc, &sweep,
+				&x, &y, &n) == 7);
+
 		} else {
-			/*LOG(("parse failed at \"%s\"", s));*/
+			fprintf(stderr, "parse failed at \"%s\"\n", s);
 			break;
 		}
 	}
 
 	xmlFree(path_d);
+
+	if (i <= 4) {
+		/* no real segments in path */
+		free(p);
+		return svgtiny_OK;
+	}
 
 	return svgtiny_add_path(p, i, &state);
 }
