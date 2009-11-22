@@ -13,9 +13,11 @@ TESTRUNNER := $(ECHO)
 WARNFLAGS := -Wall -W -Wundef -Wpointer-arith -Wcast-align \
 	-Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes \
 	-Wmissing-declarations -Wnested-externs -pedantic
-# BeOS/Haiku standard library headers create warnings
+# BeOS/Haiku/AmigaOS4 standard library headers create warnings
 ifneq ($(TARGET),beos)
-  WARNFLAGS := $(WARNFLAGS) -Werror
+  ifneq ($(TARGET),AmigaOS)
+    WARNFLAGS := $(WARNFLAGS) -Werror
+  endif
 endif
 CFLAGS := -D_BSD_SOURCE -I$(CURDIR)/include/ \
 	-I$(CURDIR)/src $(WARNFLAGS) $(CFLAGS)
