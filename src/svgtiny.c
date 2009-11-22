@@ -18,6 +18,9 @@
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
+#ifndef M_PI
+#define M_PI		3.14159265358979323846
+#endif
 
 static svgtiny_code svgtiny_parse_svg(xmlNode *svg,
 		struct svgtiny_parse_state state);
