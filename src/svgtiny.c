@@ -2,7 +2,7 @@
  * This file is part of Libsvgtiny
  * Licensed under the MIT License,
  *                http://opensource.org/licenses/mit-license.php
- * Copyright 2008 James Bursa <james@semichrome.net>
+ * Copyright 2008-2009 James Bursa <james@semichrome.net>
  */
 
 #define _GNU_SOURCE  /* for strndup */
@@ -22,6 +22,8 @@
 #define M_PI		3.14159265358979323846
 #endif
 
+#define KAPPA		0.5522847498
+
 static svgtiny_code svgtiny_parse_svg(xmlNode *svg,
 		struct svgtiny_parse_state state);
 static svgtiny_code svgtiny_parse_path(xmlNode *path,
@@ -29,6 +31,8 @@ static svgtiny_code svgtiny_parse_path(xmlNode *path,
 static svgtiny_code svgtiny_parse_rect(xmlNode *rect,
 		struct svgtiny_parse_state state);
 static svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+		struct svgtiny_parse_state state);
+static svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
 		struct svgtiny_parse_state state);
 static svgtiny_code svgtiny_parse_line(xmlNode *line,
 		struct svgtiny_parse_state state);
@@ -186,6 +190,8 @@ svgtiny_code svgtiny_parse_svg(xmlNode *svg,
 				code = svgtiny_parse_rect(child, state);
 			else if (strcmp(name, "circle") == 0)
 				code = svgtiny_parse_circle(child, state);
+			else if (strcmp(name, "ellipse") == 0)
+				code = svgtiny_parse_ellipse(child, state);
 			else if (strcmp(name, "line") == 0)
 				code = svgtiny_parse_line(child, state);
 			else if (strcmp(name, "polyline") == 0)
@@ -480,8 +486,7 @@ svgtiny_code svgtiny_parse_rect(xmlNode *rect,
 svgtiny_code svgtiny_parse_circle(xmlNode *circle,
 		struct svgtiny_parse_state state)
 {
-	float x = 0, y = 0, r = 0;
-	const float kappa = 0.5522847498;
+	float x = 0, y = 0, r = -1;
 
 	for (xmlAttr *attr = circle->properties; attr; attr = attr->next) {
 		const char *name = (const char *) attr->name;
@@ -499,40 +504,126 @@ svgtiny_code svgtiny_parse_circle(xmlNode *circle,
 	svgtiny_parse_paint_attributes(circle, &state);
 	svgtiny_parse_transform_attributes(circle, &state);
 
+	if (r < 0) {
+		state.diagram->error_line = circle->line;
+		state.diagram->error_message = "circle: r missing or negative";
+		return svgtiny_SVG_ERROR;
+	}
+	if (r == 0)
+		return svgtiny_OK;
+
 	float *p = malloc(32 * sizeof p[0]);
 	if (!p)
 		return svgtiny_OUT_OF_MEMORY;
 
 	p[0] = svgtiny_PATH_MOVE;
-	p[1] = x - r;
+	p[1] = x + r;
 	p[2] = y;
 	p[3] = svgtiny_PATH_BEZIER;
-	p[4] = x - r;
-	p[5] = y + r * kappa;
-	p[6] = x - r * kappa;
+	p[4] = x + r;
+	p[5] = y + r * KAPPA;
+	p[6] = x + r * KAPPA;
 	p[7] = y + r;
 	p[8] = x;
 	p[9] = y + r;
 	p[10] = svgtiny_PATH_BEZIER;
-	p[11] = x + r * kappa;
+	p[11] = x - r * KAPPA;
 	p[12] = y + r;
-	p[13] = x + r;
-	p[14] = y + r * kappa;
-	p[15] = x + r;
+	p[13] = x - r;
+	p[14] = y + r * KAPPA;
+	p[15] = x - r;
 	p[16] = y;
 	p[17] = svgtiny_PATH_BEZIER;
-	p[18] = x + r;
-	p[19] = y - r * kappa;
-	p[20] = x + r * kappa;
+	p[18] = x - r;
+	p[19] = y - r * KAPPA;
+	p[20] = x - r * KAPPA;
 	p[21] = y - r;
 	p[22] = x;
 	p[23] = y - r;
 	p[24] = svgtiny_PATH_BEZIER;
-	p[25] = x - r * kappa;
+	p[25] = x + r * KAPPA;
 	p[26] = y - r;
-	p[27] = x - r;
-	p[28] = y - r * kappa;
-	p[29] = x - r;
+	p[27] = x + r;
+	p[28] = y - r * KAPPA;
+	p[29] = x + r;
+	p[30] = y;
+	p[31] = svgtiny_PATH_CLOSE;
+	
+	return svgtiny_add_path(p, 32, &state);
+}
+
+
+/**
+ * Parse an <ellipse> element node.
+ */
+
+svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
+		struct svgtiny_parse_state state)
+{
+	float x = 0, y = 0, rx = -1, ry = -1;
+
+	for (xmlAttr *attr = ellipse->properties; attr; attr = attr->next) {
+		const char *name = (const char *) attr->name;
+		const char *content = (const char *) attr->children->content;
+		if (strcmp(name, "cx") == 0)
+			x = svgtiny_parse_length(content,
+					state.viewport_width, state);
+		else if (strcmp(name, "cy") == 0)
+			y = svgtiny_parse_length(content,
+					state.viewport_height, state);
+		else if (strcmp(name, "rx") == 0)
+			rx = svgtiny_parse_length(content,
+					state.viewport_width, state);
+		else if (strcmp(name, "ry") == 0)
+			ry = svgtiny_parse_length(content,
+					state.viewport_width, state);
+        }
+	svgtiny_parse_paint_attributes(ellipse, &state);
+	svgtiny_parse_transform_attributes(ellipse, &state);
+
+	if (rx < 0 || ry < 0) {
+		state.diagram->error_line = ellipse->line;
+		state.diagram->error_message = "ellipse: rx or ry missing "
+				"or negative";
+		return svgtiny_SVG_ERROR;
+	}
+	if (rx == 0 || ry == 0)
+		return svgtiny_OK;
+
+	float *p = malloc(32 * sizeof p[0]);
+	if (!p)
+		return svgtiny_OUT_OF_MEMORY;
+
+	p[0] = svgtiny_PATH_MOVE;
+	p[1] = x + rx;
+	p[2] = y;
+	p[3] = svgtiny_PATH_BEZIER;
+	p[4] = x + rx;
+	p[5] = y + ry * KAPPA;
+	p[6] = x + rx * KAPPA;
+	p[7] = y + ry;
+	p[8] = x;
+	p[9] = y + ry;
+	p[10] = svgtiny_PATH_BEZIER;
+	p[11] = x - rx * KAPPA;
+	p[12] = y + ry;
+	p[13] = x - rx;
+	p[14] = y + ry * KAPPA;
+	p[15] = x - rx;
+	p[16] = y;
+	p[17] = svgtiny_PATH_BEZIER;
+	p[18] = x - rx;
+	p[19] = y - ry * KAPPA;
+	p[20] = x - rx * KAPPA;
+	p[21] = y - ry;
+	p[22] = x;
+	p[23] = y - ry;
+	p[24] = svgtiny_PATH_BEZIER;
+	p[25] = x + rx * KAPPA;
+	p[26] = y - ry;
+	p[27] = x + rx;
+	p[28] = y - ry * KAPPA;
+	p[29] = x + rx;
 	p[30] = y;
 	p[31] = svgtiny_PATH_CLOSE;
 	
