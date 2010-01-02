@@ -28,6 +28,8 @@ static void svgtiny_invert_matrix(float *m, float *inv);
 
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 {
+	xmlNode *gradient;
+
 	fprintf(stderr, "svgtiny_find_gradient: id \"%s\"\n", id);
 
 	state->linear_gradient_stop_count = 0;
@@ -43,7 +45,7 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	state->gradient_transform.e = 0;
 	state->gradient_transform.f = 0;
 
-	xmlNode *gradient = svgtiny_find_element_by_id(
+	gradient = svgtiny_find_element_by_id(
 			(xmlNode *) state->document, id);
 	fprintf(stderr, "gradient %p\n", (void *) gradient);
 	if (!gradient) {
@@ -67,12 +69,15 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 		struct svgtiny_parse_state *state)
 {
+	unsigned int i = 0;
+	xmlNode *stop;
+	xmlAttr *attr;
 	xmlAttr *href = xmlHasProp(linear, (const xmlChar *) "href");
 	if (href && href->children->content[0] == '#')
 		svgtiny_find_gradient((const char *) href->children->content
 				+ 1, state);
 
-	for (xmlAttr *attr = linear->properties; attr; attr = attr->next) {
+	for (attr = linear->properties; attr; attr = attr->next) {
 		const char *name = (const char *) attr->name;
 		const char *content = (const char *) attr->children->content;
 		if (strcmp(name, "x1") == 0)
@@ -104,8 +109,7 @@ svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 		}
         }
 
-	unsigned int i = 0;
-	for (xmlNode *stop = linear->children; stop; stop = stop->next) {
+	for (stop = linear->children; stop; stop = stop->next) {
 		float offset = -1;
 		svgtiny_colour color = svgtiny_TRANSPARENT;
 
@@ -114,7 +118,7 @@ svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
 		if (strcmp((const char *) stop->name, "stop") != 0)
 			continue;
 
-		for (xmlAttr *attr = stop->properties; attr;
+		for (attr = stop->properties; attr;
 				attr = attr->next) {
 			const char *name = (const char *) attr->name;
 			const char *content =
@@ -184,8 +188,31 @@ float svgtiny_parse_gradient_offset(const char *s)
 svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		struct svgtiny_parse_state *state)
 {
-	/* determine object bounding box */
+	struct grad_point {
+		float x, y, r;
+	};
 	float object_x0, object_y0, object_x1, object_y1;
+	float gradient_x0, gradient_y0, gradient_x1, gradient_y1,
+	      gradient_dx, gradient_dy;
+	float trans[6];
+	unsigned int steps = 10;
+	float x0 = 0, y0 = 0, x0_trans, y0_trans, r0; /* segment start point */
+	float x1, y1, x1_trans, y1_trans, r1; /* segment end point */
+	/* segment control points (beziers only) */
+	float c0x = 0, c0y = 0, c1x = 0, c1y = 0;
+	float gradient_norm_squared;
+	struct svgtiny_list *pts;
+	float min_r = 1000;
+	unsigned int min_pt = 0;
+	unsigned int j;
+	unsigned int stop_count;
+	unsigned int current_stop;
+	float last_stop_r;
+	float current_stop_r;
+	int red0, green0, blue0, red1, green1, blue1;
+	unsigned int t, a, b;
+
+	/* determine object bounding box */
 	svgtiny_path_bbox(p, n, &object_x0, &object_y0, &object_x1, &object_y1);
 	#ifdef GRADIENT_DEBUG
 	fprintf(stderr, "object bbox: (%g %g) (%g %g)\n",
@@ -196,8 +223,6 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	fprintf(stderr, "x1 %s, y1 %s, x2 %s, y2 %s\n",
 			state->gradient_x1, state->gradient_y1,
 			state->gradient_x2, state->gradient_y2);
-	float gradient_x0, gradient_y0, gradient_x1, gradient_y1,
-	      gradient_dx, gradient_dy;
 	if (!state->gradient_user_space_on_use) {
 		gradient_x0 = object_x0 +
 				svgtiny_parse_length(state->gradient_x1,
@@ -271,7 +296,6 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	}*/
 
 	/* invert gradient transform for applying to vertices */
-	float trans[6];
 	svgtiny_invert_matrix(&state->gradient_transform.a, trans);
 	fprintf(stderr, "inverse transform %g %g %g %g %g %g\n",
 			trans[0], trans[1], trans[2], trans[3],
@@ -279,24 +303,16 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 
 	/* compute points on the path for triangle vertices */
 	/* r, r0, r1 are distance along gradient vector */
-	unsigned int steps = 10;
-	float x0 = 0, y0 = 0, x0_trans, y0_trans, r0; /* segment start point */
-	float x1, y1, x1_trans, y1_trans, r1; /* segment end point */
-	/* segment control points (beziers only) */
-	float c0x = 0, c0y = 0, c1x = 0, c1y = 0;
-	float gradient_norm_squared = gradient_dx * gradient_dx +
+	gradient_norm_squared = gradient_dx * gradient_dx +
 	                              gradient_dy * gradient_dy;
-	struct grad_point {
-		float x, y, r;
-	};
-	struct svgtiny_list *pts = svgtiny_list_create(
+	pts = svgtiny_list_create(
 			sizeof (struct grad_point));
 	if (!pts)
 		return svgtiny_OUT_OF_MEMORY;
-	float min_r = 1000;
-	unsigned int min_pt = 0;
-	for (unsigned int j = 0; j != n; ) {
+	for (j = 0; j != n; ) {
 		int segment_type = (int) p[j];
+		struct grad_point *point;
+		unsigned int z;
 
 		if (segment_type == svgtiny_PATH_MOVE) {
 			x0 = p[j + 1];
@@ -315,7 +331,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		r0 = ((x0_trans - gradient_x0) * gradient_dx +
 				(y0_trans - gradient_y0) * gradient_dy) /
 				gradient_norm_squared;
-		struct grad_point *point = svgtiny_list_push(pts);
+		point = svgtiny_list_push(pts);
 		if (!point) {
 			svgtiny_list_free(pts);
 			return svgtiny_OUT_OF_MEMORY;
@@ -360,8 +376,9 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 				r0, r1, steps);
 
 		/* loop through intermediate points */
-		for (unsigned int z = 1; z != steps; z++) {
+		for (z = 1; z != steps; z++) {
 			float t, x, y, x_trans, y_trans, r;
+			struct grad_point *point;
 			t = (float) z / (float) steps;
 			if (segment_type == svgtiny_PATH_BEZIER) {
 				x = (1-t) * (1-t) * (1-t) * x0 +
@@ -382,7 +399,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 					(y_trans - gradient_y0) * gradient_dy) /
 					gradient_norm_squared;
 			fprintf(stderr, "(%g %g [%g]) ", x, y, r);
-			struct grad_point *point = svgtiny_list_push(pts);
+			point = svgtiny_list_push(pts);
 			if (!point) {
 				svgtiny_list_free(pts);
 				return svgtiny_OUT_OF_MEMORY;
@@ -405,16 +422,14 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			svgtiny_list_size(pts), min_pt, min_r);
 
 	/* render triangles */
-	unsigned int stop_count = state->linear_gradient_stop_count;
+	stop_count = state->linear_gradient_stop_count;
 	assert(2 <= stop_count);
-	unsigned int current_stop = 0;
-	float last_stop_r = 0;
-	float current_stop_r = state->gradient_stop[0].offset;
-	int red0, green0, blue0, red1, green1, blue1;
+	current_stop = 0;
+	last_stop_r = 0;
+	current_stop_r = state->gradient_stop[0].offset;
 	red0 = red1 = svgtiny_RED(state->gradient_stop[0].color);
 	green0 = green1 = svgtiny_GREEN(state->gradient_stop[0].color);
 	blue0 = blue1 = svgtiny_BLUE(state->gradient_stop[0].color);
-	unsigned int t, a, b;
 	t = min_pt;
 	a = (min_pt + 1) % svgtiny_list_size(pts);
 	b = min_pt == 0 ? svgtiny_list_size(pts) - 1 : min_pt - 1;
@@ -423,6 +438,8 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		struct grad_point *point_a = svgtiny_list_get(pts, a);
 		struct grad_point *point_b = svgtiny_list_get(pts, b);
 		float mean_r = (point_t->r + point_a->r + point_b->r) / 3;
+		float *p;
+		struct svgtiny_shape *shape;
 		/*fprintf(stderr, "triangle: t %i %.3f a %i %.3f b %i %.3f "
 				"mean_r %.3f\n",
 				t, pts[t].r, a, pts[a].r, b, pts[b].r,
@@ -444,7 +461,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			current_stop_r = state->
 					gradient_stop[current_stop].offset;
 		}
-		float *p = malloc(10 * sizeof p[0]);
+		p = malloc(10 * sizeof p[0]);
 		if (!p)
 			return svgtiny_OUT_OF_MEMORY;
 		p[0] = svgtiny_PATH_MOVE;
@@ -458,7 +475,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		p[8] = point_b->y;
 		p[9] = svgtiny_PATH_CLOSE;
 		svgtiny_transform_path(p, 10, state);
-		struct svgtiny_shape *shape = svgtiny_add_shape(state);
+		shape = svgtiny_add_shape(state);
 		if (!shape) {
 			free(p);
 			return svgtiny_OUT_OF_MEMORY;
@@ -544,9 +561,10 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 
 	/* plot actual path outline */
 	if (state->stroke != svgtiny_TRANSPARENT) {
+		struct svgtiny_shape *shape;
 		svgtiny_transform_path(p, n, state);
 
-		struct svgtiny_shape *shape = svgtiny_add_shape(state);
+		shape = svgtiny_add_shape(state);
 		if (!shape) {
 			free(p);
 			return svgtiny_OUT_OF_MEMORY;
@@ -572,11 +590,14 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 void svgtiny_path_bbox(float *p, unsigned int n,
 		float *x0, float *y0, float *x1, float *y1)
 {
+	unsigned int j;
+
 	*x0 = *x1 = p[1];
 	*y0 = *y1 = p[2];
 
-	for (unsigned int j = 0; j != n; ) {
+	for (j = 0; j != n; ) {
 		unsigned int points = 0;
+		unsigned int k;
 		switch ((int) p[j]) {
 		case svgtiny_PATH_MOVE:
 		case svgtiny_PATH_LINE:
@@ -592,7 +613,7 @@ void svgtiny_path_bbox(float *p, unsigned int n,
 			assert(0);
 		}
 		j++;
-		for (unsigned int k = 0; k != points; k++) {
+		for (k = 0; k != points; k++) {
 			float x = p[j], y = p[j + 1];
 			if (x < *x0)
 				*x0 = x;
@@ -633,9 +654,10 @@ xmlNode *svgtiny_find_element_by_id(xmlNode *node, const char *id)
 	xmlNode *found;
 
 	for (child = node->children; child; child = child->next) {
+		xmlAttr *attr;
 		if (child->type != XML_ELEMENT_NODE)
 			continue;
-		xmlAttr *attr = xmlHasProp(child, (const xmlChar *) "id");
+		attr = xmlHasProp(child, (const xmlChar *) "id");
 		if (attr && strcmp(id, (const char *) attr->children->content)
 				== 0)
 			return child;
