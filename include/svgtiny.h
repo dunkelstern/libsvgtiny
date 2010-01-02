@@ -49,14 +49,14 @@ typedef enum {
 	svgtiny_OUT_OF_MEMORY,
 	svgtiny_LIBXML_ERROR,
 	svgtiny_NOT_SVG,
-	svgtiny_SVG_ERROR,
+	svgtiny_SVG_ERROR
 } svgtiny_code;
 
 enum {
 	svgtiny_PATH_MOVE,
 	svgtiny_PATH_CLOSE,
 	svgtiny_PATH_LINE,
-	svgtiny_PATH_BEZIER,
+	svgtiny_PATH_BEZIER
 };
 
 struct svgtiny_named_color {
