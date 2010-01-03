@@ -35,6 +35,9 @@ ifneq ($(PKGCONFIG),)
   LDFLAGS := $(LDFLAGS) \
 		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libxml-2.0)
 else
+  ifeq ($(TARGET),beos)
+    CFLAGS := $(CFLAGS) -I/boot/home/config/include/libxml2
+  endif
   CFLAGS := $(CFLAGS) -I$(PREFIX)/include/libxml2
   LDFLAGS := $(CFLAGS) -lxml2
 endif
