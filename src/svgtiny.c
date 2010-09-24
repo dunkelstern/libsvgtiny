@@ -917,8 +917,10 @@ void svgtiny_parse_paint_attributes(const xmlNode *node,
 				s += 13;
 				while (*s == ' ')
 					s++;
-				state->stroke_width = svgtiny_parse_length(s,
+				value = strndup(s, strcspn(s, "; "));
+				state->stroke_width = svgtiny_parse_length(value,
 						state->viewport_width, *state);
+				free(value);
 			}
 		}
 	}
