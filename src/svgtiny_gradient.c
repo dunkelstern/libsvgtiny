@@ -5,7 +5,6 @@
  * Copyright 2008 James Bursa <james@semichrome.net>
  */
 
-#define _GNU_SOURCE  /* for strndup */
 #include <assert.h>
 #include <math.h>
 #include <string.h>

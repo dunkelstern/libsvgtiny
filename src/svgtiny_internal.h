@@ -63,6 +63,12 @@ void svgtiny_parse_transform(char *s, float *ma, float *mb,
 struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state);
 void svgtiny_transform_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
+#if defined(_GNU_SOURCE)
+#define HAVE_STRNDUP
+#else
+#undef HAVE_STRNDUP
+char *strndup(const char *s, size_t n);
+#endif
 
 /* svgtiny_gradient.c */
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state);
