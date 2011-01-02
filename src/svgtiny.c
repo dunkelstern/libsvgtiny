@@ -1232,7 +1232,7 @@ void svgtiny_free(struct svgtiny_diagram *svg)
 }
 
 #ifndef HAVE_STRNDUP
-char *strndup(const char *s, size_t n)
+char *svgtiny_strndup(const char *s, size_t n)
 {
 	size_t len;
 	char *s2;

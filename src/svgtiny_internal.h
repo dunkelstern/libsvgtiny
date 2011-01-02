@@ -67,7 +67,8 @@ void svgtiny_transform_path(float *p, unsigned int n,
 #define HAVE_STRNDUP
 #else
 #undef HAVE_STRNDUP
-char *strndup(const char *s, size_t n);
+char *svgtiny_strndup(const char *s, size_t n);
+#define strndup svgtiny_strndup
 #endif
 
 /* svgtiny_gradient.c */
