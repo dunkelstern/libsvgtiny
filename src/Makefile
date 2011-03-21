@@ -5,8 +5,9 @@ SOURCES := $(SOURCES) $(BUILDDIR)/src_colors.c
 
 $(BUILDDIR)/src_colors.c: src/colors.gperf
 	$(VQ)$(ECHO) "   GPERF: $<"
-	$(Q)gperf --output-file=$@ $<
+	$(Q)gperf --output-file=$@.tmp $<
 # Hack for GCC 4.2 compatibility (gperf 3.0.4 solves this properly)
-	$(Q)$(SED) -i -e 's/#ifdef __GNUC_STDC_INLINE__/#if defined __GNUC_STDC_INLINE__ || defined __GNUC_GNU_INLINE__/' $@
+	$(Q)$(SED) -e 's/#ifdef __GNUC_STDC_INLINE__/#if defined __GNUC_STDC_INLINE__ || defined __GNUC_GNU_INLINE__/' $@.tmp >$@
+	$(Q)$(RM) $@.tmp
 
 include build/makefiles/Makefile.subdir
