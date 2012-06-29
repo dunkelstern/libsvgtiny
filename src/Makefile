@@ -10,4 +10,4 @@ $(BUILDDIR)/src_colors.c: src/colors.gperf
 	$(Q)$(SED) -e 's/#ifdef __GNUC_STDC_INLINE__/#if defined __GNUC_STDC_INLINE__ || defined __GNUC_GNU_INLINE__/' $@.tmp >$@
 	$(Q)$(RM) $@.tmp
 
-include build/makefiles/Makefile.subdir
+include $(NSBUILD)/Makefile.subdir

@@ -5,7 +5,9 @@ COMPONENT_VERSION := 0.0.2
 COMPONENT_TYPE ?= lib-static
 
 # Setup the tooling
-include build/makefiles/Makefile.tools
+PREFIX ?= /opt/netsurf
+NSSHARED ?= $(PREFIX)/share/netsurf-buildsystem
+include $(NSSHARED)/makefiles/Makefile.tools
 
 TESTRUNNER := $(ECHO)
 
@@ -43,7 +45,7 @@ else
   LDFLAGS := $(CFLAGS) -lxml2
 endif
 
-include build/makefiles/Makefile.top
+include $(NSBUILD)/Makefile.top
 
 # Extra installation rules
 I := /include
