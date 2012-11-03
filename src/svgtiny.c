@@ -205,10 +205,18 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	dom_node_unref(document);
 
 cleanup:
+	if (state.gradient_x1 != NULL)
+		dom_string_unref(state.gradient_x1);
+	if (state.gradient_x2 != NULL)
+		dom_string_unref(state.gradient_x2);
+	if (state.gradient_y1 != NULL)
+		dom_string_unref(state.gradient_y1);
+	if (state.gradient_y2 != NULL)
+		dom_string_unref(state.gradient_y2);
 #define SVGTINY_STRING_ACTION2(s,n)			\
 	if (state.interned_##s != NULL)			\
 		dom_string_unref(state.interned_##s);
-//#include "svgtiny_strings.h"
+#include "svgtiny_strings.h"
 #undef SVGTINY_STRING_ACTION2
 	return code;
 }
