@@ -870,26 +870,37 @@ svgtiny_code svgtiny_parse_line(dom_element *line,
 svgtiny_code svgtiny_parse_poly(dom_element *poly,
 		struct svgtiny_parse_state state, bool polygon)
 {
+	dom_string *points_str;
+	dom_exception exc;
 	char *s, *points;
 	float *p;
 	unsigned int i;
 
 	svgtiny_parse_paint_attributes(poly, &state);
 	svgtiny_parse_transform_attributes(poly, &state);
-
-	/* read points attribute */
-	s = points = (char *) xmlGetProp(poly, (const xmlChar *) "points");
-	if (!s) {
-		state.diagram->error_line = poly->line;
+	
+	exc = dom_element_get_attribute(poly, state.interned_points,
+					&points_str);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	
+	if (points_str == NULL) {
+		state.diagram->error_line = -1; /* poly->line; */
 		state.diagram->error_message =
 				"polyline/polygon: missing points attribute";
 		return svgtiny_SVG_ERROR;
 	}
 
+	s = points = strndup(dom_string_data(points_str),
+			     dom_string_length(points_str));
+	dom_string_unref(points_str);
+	/* read points attribute */
+	if (s == NULL)
+		return svgtiny_OUT_OF_MEMORY;
 	/* allocate space for path: it will never have more elements than s */
 	p = malloc(sizeof p[0] * strlen(s));
 	if (!p) {
-		xmlFree(points);
+		free(points);
 		return svgtiny_OUT_OF_MEMORY;
 	}
 
@@ -917,7 +928,7 @@ svgtiny_code svgtiny_parse_poly(dom_element *poly,
         if (polygon)
 		p[i++] = svgtiny_PATH_CLOSE;
 
-	xmlFree(points);
+	free(points);
 
 	return svgtiny_add_path(p, i, &state);
 }
@@ -932,7 +943,8 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 {
 	float x, y, width, height;
 	float px, py;
-	dom_element *child;
+	dom_node *child;
+	dom_exception exc;
 
 	svgtiny_parse_position_attributes(text, state,
 			&x, &y, &width, &height);
@@ -946,27 +958,61 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 
 	/*struct css_style style = state.style;
 	style.font_size.value.length.value *= state.ctm.a;*/
-
-	for (child = text->children; child; child = child->next) {
+	
+        exc = dom_node_get_first_child(text, &child);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	while (child != NULL) {
+		dom_node *next;
+		dom_node_type nodetype;
 		svgtiny_code code = svgtiny_OK;
 
-		if (child->type == XML_TEXT_NODE) {
+		exc = dom_node_get_node_type(child, &nodetype);
+		if (exc != DOM_NO_ERR) {
+			dom_node_unref(child);
+			return svgtiny_LIBDOM_ERROR;
+		}
+		if (nodetype == DOM_ELEMENT_NODE) {
+			dom_string *nodename;
+			exc = dom_node_get_node_name(child, &nodename);
+			if (exc != DOM_NO_ERR) {
+				dom_node_unref(child);
+				return svgtiny_LIBDOM_ERROR;
+			}
+			if (dom_string_caseless_isequal(nodename,
+							state.interned_tspan))
+				code = svgtiny_parse_text((dom_element *)child,
+							  state);
+			dom_string_unref(nodename);
+		} else if (nodetype == DOM_TEXT_NODE) {
 			struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-			if (!shape)
+			dom_string *content;
+			if (shape == NULL) {
+				dom_node_unref(child);
 				return svgtiny_OUT_OF_MEMORY;
-			shape->text = strdup((const char *) child->content);
+			}
+			exc = dom_text_get_whole_text(child, &content);
+			if (exc != DOM_NO_ERR) {
+				dom_node_unref(child);
+				return svgtiny_LIBDOM_ERROR;
+			}
+			shape->text = strndup(dom_string_data(content),
+					      dom_string_length(content));
+			dom_string_unref(content);
 			shape->text_x = px;
 			shape->text_y = py;
 			state.diagram->shape_count++;
-
-		} else if (child->type == XML_ELEMENT_NODE &&
-				strcmp((const char *) child->name,
-					"tspan") == 0) {
-			code = svgtiny_parse_text(child, state);
 		}
 
-		if (!code != svgtiny_OK)
+		if (code != svgtiny_OK) {
+			dom_node_unref(child);
 			return code;
+		}
+		exc = dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		if (exc != DOM_NO_ERR)
+			return svgtiny_LIBDOM_ERROR;
+		child = next;
 	}
 
 	return svgtiny_OK;
