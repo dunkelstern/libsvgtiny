@@ -8,12 +8,14 @@
 #include <assert.h>
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
+
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
 #undef GRADIENT_DEBUG
 
-static svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
+static svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 		struct svgtiny_parse_state *state);
 static float svgtiny_parse_gradient_offset(const char *s);
 static void svgtiny_path_bbox(float *p, unsigned int n,
@@ -27,7 +29,9 @@ static void svgtiny_invert_matrix(float *m, float *inv);
 
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 {
-	xmlNode *gradient;
+	dom_element *gradient;
+	dom_string *id_str;
+	dom_exception exc;
 
 	fprintf(stderr, "svgtiny_find_gradient: id \"%s\"\n", id);
 
@@ -43,19 +47,34 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	state->gradient_transform.d = 1;
 	state->gradient_transform.e = 0;
 	state->gradient_transform.f = 0;
+	
+	exc = dom_string_create_interned((const uint8_t *) id, strlen(id),
+					 &id_str);
+	if (exc != DOM_NO_ERR)
+		return;
+	
+	exc = dom_document_get_element_by_id(state->document, id_str,
+					     &gradient);
+	dom_string_unref(id_str);
+	if (exc != DOM_NO_ERR)
+		return;
 
-	gradient = svgtiny_find_element_by_id(
-			(xmlNode *) state->document, id);
-	fprintf(stderr, "gradient %p\n", (void *) gradient);
-	if (!gradient) {
+	if (gradient == NULL) {
 		fprintf(stderr, "gradient \"%s\" not found\n", id);
 		return;
 	}
-
-	fprintf(stderr, "gradient name \"%s\"\n", gradient->name);
-	if (strcmp((const char *) gradient->name, "linearGradient") == 0) {
-		svgtiny_parse_linear_gradient(gradient, state);
+	
+	exc = dom_node_get_node_name(gradient, &id_str);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(gradient);
+		return;
 	}
+	
+	if (dom_string_isequal(id_str, state->interned_linearGradient))
+		svgtiny_parse_linear_gradient(gradient, state);
+	
+	dom_string_unref(id_str);
+	dom_node_unref(gradient);
 }
 
 
@@ -65,17 +84,25 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
  * http://www.w3.org/TR/SVG11/pservers#LinearGradients
  */
 
-svgtiny_code svgtiny_parse_linear_gradient(xmlNode *linear,
+svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 		struct svgtiny_parse_state *state)
 {
 	unsigned int i = 0;
-	xmlNode *stop;
-	xmlAttr *attr;
-	xmlAttr *href = xmlHasProp(linear, (const xmlChar *) "href");
-	if (href && href->children->content[0] == '#')
-		svgtiny_find_gradient((const char *) href->children->content
-				+ 1, state);
-
+	dom_element *stop;
+	dom_string *attr;
+	dom_exception exc;
+	
+	exc = dom_element_get_attribute(linear, state->interned_href, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		if (dom_string_data(attr)[0] == (uint8_t) '#') {
+			char *s = strndup(dom_string_data(attr) + 1,
+					  dom_string_length(attr) - 1);
+			svgtiny_find_gradient(s, state);
+			free(s);
+		}
+		dom_string_unref(attr);
+	}
+	
 	for (attr = linear->properties; attr; attr = attr->next) {
 		const char *name = (const char *) attr->name;
 		const char *content = (const char *) attr->children->content;
@@ -640,31 +667,5 @@ void svgtiny_invert_matrix(float *m, float *inv)
 	inv[3] = m[0] / determinant;
 	inv[4] = (m[2]*m[5] - m[3]*m[4]) / determinant;
 	inv[5] = (m[1]*m[4] - m[0]*m[5]) / determinant;
-}
-
-
-/**
- * Find an element in the document by id.
- */
-
-xmlNode *svgtiny_find_element_by_id(xmlNode *node, const char *id)
-{
-	xmlNode *child;
-	xmlNode *found;
-
-	for (child = node->children; child; child = child->next) {
-		xmlAttr *attr;
-		if (child->type != XML_ELEMENT_NODE)
-			continue;
-		attr = xmlHasProp(child, (const xmlChar *) "id");
-		if (attr && strcmp(id, (const char *) attr->children->content)
-				== 0)
-			return child;
-		found = svgtiny_find_element_by_id(child, id);
-		if (found)
-			return found;
-	}
-
-	return 0;
 }
 

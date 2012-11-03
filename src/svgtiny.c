@@ -53,6 +53,8 @@ static void svgtiny_parse_transform_attributes(dom_element *node,
 		struct svgtiny_parse_state *state);
 static svgtiny_code svgtiny_add_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
+static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
+		struct svgtiny_parse_state *state);
 
 
 /**
@@ -165,15 +167,15 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	state.viewport_width = viewport_width;
 	state.viewport_height = viewport_height;
 
-#define SVGTINY_STRING_ACTION(s)					\
-	if (dom_string_create_interned((const uint8_t *) #s,		\
-				       strlen(#s), &state.interned_##s)	\
+#define SVGTINY_STRING_ACTION2(s,n)					\
+	if (dom_string_create_interned((const uint8_t *) #n,		\
+				       strlen(#n), &state.interned_##s)	\
 	    != DOM_NO_ERR) {						\
 		code = svgtiny_LIBDOM_ERROR;				\
 		goto cleanup;						\
 	}
 #include "svgtiny_strings.h"
-#undef SVGTINY_STRING_ACTION
+#undef SVGTINY_STRING_ACTION2
 
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
 	diagram->width = width;
@@ -202,11 +204,11 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	dom_node_unref(document);
 
 cleanup:
-#define SVGTINY_STRING_ACTION(s)				\
+#define SVGTINY_STRING_ACTION2(s,n)			\
 	if (state.interned_##s != NULL)			\
 		dom_string_unref(state.interned_##s);
 //#include "svgtiny_strings.h"
-#undef SVGTINY_STRING_ACTION
+#undef SVGTINY_STRING_ACTION2
 	return code;
 }
 
@@ -1027,28 +1029,38 @@ void svgtiny_parse_position_attributes(const dom_element *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height)
 {
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
 	*x = 0;
 	*y = 0;
 	*width = state.viewport_width;
 	*height = state.viewport_height;
 
-	for (attr = node->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "x") == 0)
-			*x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y") == 0)
-			*y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "width") == 0)
-			*width = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "height") == 0)
-			*height = svgtiny_parse_length(content,
-					state.viewport_height, state);
+	exc = dom_element_get_attribute(node, state.interned_x, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*x = svgtiny_parse_length(attr, state.viewport_width, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_y, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*y = svgtiny_parse_length(attr, state.viewport_height, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_width, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*width = svgtiny_parse_length(attr, state.viewport_width,
+					      state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_height, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*height = svgtiny_parse_length(attr, state.viewport_height,
+					       state);
+		dom_string_unref(attr);
 	}
 }
 
@@ -1095,7 +1107,7 @@ static float _svgtiny_parse_length(const char *s, int viewport_size,
 float svgtiny_parse_length(dom_string *s, int viewport_size,
 			   const struct svgtiny_parse_state state)
 {
-	const char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	char *ss = strndup(dom_string_data(s), dom_string_length(s));
 	float ret = _svgtiny_parse_length(ss, viewport_size, state);
 	free(ss);
 	return ret;
@@ -1108,49 +1120,61 @@ float svgtiny_parse_length(dom_string *s, int viewport_size,
 void svgtiny_parse_paint_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state)
 {
-	const xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
+	
+	exc = dom_element_get_attribute(node, state->interned_fill, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		svgtiny_parse_color(attr, &state->fill, state);
+		dom_string_unref(attr);
+	}
 
-	for (attr = node->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "fill") == 0)
-			svgtiny_parse_color(content, &state->fill, state);
-		else if (strcmp(name, "stroke") == 0)
-			svgtiny_parse_color(content, &state->stroke, state);
-		else if (strcmp(name, "stroke-width") == 0)
-			state->stroke_width = svgtiny_parse_length(content,
-					state->viewport_width, *state);
-		else if (strcmp(name, "style") == 0) {
-			const char *style = (const char *)
-					attr->children->content;
-			const char *s;
-			char *value;
-			if ((s = strstr(style, "fill:"))) {
-				s += 5;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				svgtiny_parse_color(value, &state->fill, state);
-				free(value);
-			}
-			if ((s = strstr(style, "stroke:"))) {
-				s += 7;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				svgtiny_parse_color(value, &state->stroke, state);
-				free(value);
-			}
-			if ((s = strstr(style, "stroke-width:"))) {
-				s += 13;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				state->stroke_width = svgtiny_parse_length(value,
+	exc = dom_element_get_attribute(node, state->interned_stroke, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		svgtiny_parse_color(attr, &state->stroke, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state->interned_stroke_width, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		state->stroke_width = svgtiny_parse_length(attr,
 						state->viewport_width, *state);
-				free(value);
-			}
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state->interned_style, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		char *style = strndup(dom_string_data(attr),
+				      dom_string_length(attr));
+		const char *s;
+		char *value;
+		if ((s = strstr(style, "fill:"))) {
+			s += 5;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			_svgtiny_parse_color(value, &state->fill, state);
+			free(value);
 		}
+		if ((s = strstr(style, "stroke:"))) {
+			s += 7;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			_svgtiny_parse_color(value, &state->stroke, state);
+			free(value);
+		}
+		if ((s = strstr(style, "stroke-width:"))) {
+			s += 13;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			state->stroke_width = _svgtiny_parse_length(value,
+						state->viewport_width, *state);
+			free(value);
+		}
+		free(style);
+		dom_string_unref(attr);
 	}
 }
 
@@ -1159,7 +1183,7 @@ void svgtiny_parse_paint_attributes(const dom_element *node,
  * Parse a colour.
  */
 
-void svgtiny_parse_color(const char *s, svgtiny_colour *c,
+static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state)
 {
 	unsigned int r, g, b;
@@ -1218,6 +1242,13 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 	}
 }
 
+void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
+		struct svgtiny_parse_state *state)
+{
+	char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	_svgtiny_parse_color(ss, c, state);
+	free(ss);
+}
 
 /**
  * Parse font attributes, if present.
@@ -1226,6 +1257,10 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 void svgtiny_parse_font_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state)
 {
+	/* TODO: Implement this, it never used to be */
+	UNUSED(node);
+	UNUSED(state);
+#ifdef WRITTEN_THIS_PROPERLY
 	const xmlAttr *attr;
 
 	UNUSED(state);
@@ -1241,6 +1276,7 @@ void svgtiny_parse_font_attributes(const dom_element *node,
 			}*/
 		}
         }
+#endif
 }
 
 
@@ -1254,14 +1290,19 @@ void svgtiny_parse_transform_attributes(dom_element *node,
 		struct svgtiny_parse_state *state)
 {
 	char *transform;
-
-	/* parse transform */
-	transform = (char *) xmlGetProp(node, (const xmlChar *) "transform");
-	if (transform) {
+	dom_string *attr;
+	dom_exception exc;
+	
+	exc = dom_element_get_attribute(node, state->interned_transform,
+					&attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		transform = strndup(dom_string_data(attr),
+				    dom_string_length(attr));
 		svgtiny_parse_transform(transform, &state->ctm.a, &state->ctm.b,
 				&state->ctm.c, &state->ctm.d,
 				&state->ctm.e, &state->ctm.f);
-		xmlFree(transform);
+		free(transform);
+		dom_string_unref(attr);
 	}
 }
 

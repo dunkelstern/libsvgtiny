@@ -53,9 +53,9 @@ struct svgtiny_parse_state {
 	} gradient_transform;
 
 	/* Interned strings */
-#define SVGTINY_STRING_ACTION(n) dom_string *interned_##n;
+#define SVGTINY_STRING_ACTION2(n,nn) dom_string *interned_##n;
 #include "svgtiny_strings.h"
-#undef SVGTINY_STRING_ACTION
+#undef SVGTINY_STRING_ACTION2
 
 };
 
@@ -64,7 +64,7 @@ struct svgtiny_list;
 /* svgtiny.c */
 float svgtiny_parse_length(dom_string *s, int viewport_size,
 		const struct svgtiny_parse_state state);
-void svgtiny_parse_color(const char *s, svgtiny_colour *c,
+void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
 void svgtiny_parse_transform(char *s, float *ma, float *mb,
 		float *mc, float *md, float *me, float *mf);
@@ -83,7 +83,6 @@ char *svgtiny_strndup(const char *s, size_t n);
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state);
 svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
-dom_node *svgtiny_find_element_by_id(dom_node *node, const char *id);
 
 /* svgtiny_list.c */
 struct svgtiny_list *svgtiny_list_create(size_t item_size);
