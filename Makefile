@@ -34,12 +34,12 @@ endif
 # libdom
 ifneq ($(PKGCONFIG),)
   CFLAGS := $(CFLAGS) \
-		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --cflags libdom)
-  LDFLAGS := $(LDFLAGS) \
-		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libdom)
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --cflags libdom libwapcaplet)
+  LDFLAGS := $(LDFLAGS) -lm \
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libdom libwapcaplet)
 else
   CFLAGS := $(CFLAGS) -I$(PREFIX)/include
-  LDFLAGS := $(CFLAGS) -ldom
+  LDFLAGS := $(CFLAGS) -ldom -lwapcaplet -lexpat -lm
 endif
 
 include $(NSBUILD)/Makefile.top
