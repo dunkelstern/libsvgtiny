@@ -3,6 +3,7 @@
  * Licensed under the MIT License,
  *                http://opensource.org/licenses/mit-license.php
  * Copyright 2008-2009 James Bursa <james@semichrome.net>
+ * Copyright 2012 Daniel Silverstone <dsilvers@netsurf-browser.org>
  */
 
 #include <assert.h>
@@ -12,8 +13,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libxml/parser.h>
-#include <libxml/debugXML.h>
+
+#include <dom/dom.h>
+#include <dom/bindings/xml/xmlparser.h>
+
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
@@ -23,32 +26,34 @@
 
 #define KAPPA		0.5522847498
 
-static svgtiny_code svgtiny_parse_svg(xmlNode *svg,
+static svgtiny_code svgtiny_parse_svg(dom_element *svg,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_path(xmlNode *path,
+static svgtiny_code svgtiny_parse_path(dom_element *path,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+static svgtiny_code svgtiny_parse_rect(dom_element *rect,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+static svgtiny_code svgtiny_parse_circle(dom_element *circle,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
+static svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_line(xmlNode *line,
+static svgtiny_code svgtiny_parse_line(dom_element *line,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+static svgtiny_code svgtiny_parse_poly(dom_element *poly,
 		struct svgtiny_parse_state state, bool polygon);
-static svgtiny_code svgtiny_parse_text(xmlNode *text,
+static svgtiny_code svgtiny_parse_text(dom_element *text,
 		struct svgtiny_parse_state state);
-static void svgtiny_parse_position_attributes(const xmlNode *node,
+static void svgtiny_parse_position_attributes(const dom_element *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height);
-static void svgtiny_parse_paint_attributes(const xmlNode *node,
+static void svgtiny_parse_paint_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_font_attributes(const xmlNode *node,
+static void svgtiny_parse_font_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_transform_attributes(xmlNode *node,
+static void svgtiny_parse_transform_attributes(dom_element *node,
 		struct svgtiny_parse_state *state);
 static svgtiny_code svgtiny_add_path(float *p, unsigned int n,
+		struct svgtiny_parse_state *state);
+static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
 
 
@@ -60,18 +65,21 @@ struct svgtiny_diagram *svgtiny_create(void)
 {
 	struct svgtiny_diagram *diagram;
 
-	diagram = malloc(sizeof *diagram);
+	diagram = calloc(sizeof(*diagram), 1);
 	if (!diagram)
 		return 0;
 
-	diagram->shape = 0;
-	diagram->shape_count = 0;
-	diagram->error_line = 0;
-	diagram->error_message = 0;
-
 	return diagram;
+	free(diagram);
+	return NULL;
 }
 
+static void ignore_msg(uint32_t severity, void *ctx, const char *msg, ...)
+{
+	UNUSED(severity);
+	UNUSED(ctx);
+	UNUSED(msg);
+}
 
 /**
  * Parse a block of memory into a svgtiny_diagram.
@@ -81,8 +89,13 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		const char *buffer, size_t size, const char *url,
 		int viewport_width, int viewport_height)
 {
-	xmlDoc *document;
-	xmlNode *svg;
+	dom_document *document;
+	dom_exception exc;
+	dom_xml_parser *parser;
+	dom_xml_error err;
+	dom_element *svg;
+	dom_string *svg_name;
+	lwc_string *svg_name_lwc;
 	struct svgtiny_parse_state state;
 	float x, y, width, height;
 	svgtiny_code code;
@@ -91,26 +104,80 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	assert(buffer);
 	assert(url);
 
-	/* parse XML to tree */
-	document = xmlReadMemory(buffer, size, url, 0,
-			XML_PARSE_NONET | XML_PARSE_COMPACT);
-	if (!document)
-		return svgtiny_LIBXML_ERROR;
+	UNUSED(url);
 
-	/*xmlDebugDumpDocument(stderr, document);*/
+	parser = dom_xml_parser_create(NULL, NULL,
+				       ignore_msg, NULL, &document);
+
+	if (parser == NULL)
+		return svgtiny_LIBDOM_ERROR;
+
+	err = dom_xml_parser_parse_chunk(parser, (uint8_t *)buffer, size);
+	if (err != DOM_XML_OK) {
+		dom_node_unref(document);
+		dom_xml_parser_destroy(parser);
+		return svgtiny_LIBDOM_ERROR;
+	}
+
+	err = dom_xml_parser_completed(parser);
+	if (err != DOM_XML_OK) {
+		dom_node_unref(document);
+		dom_xml_parser_destroy(parser);
+		return svgtiny_LIBDOM_ERROR;
+	}
+
+	/* We're done parsing, drop the parser.
+	 * We now own the document entirely.
+	 */
+	dom_xml_parser_destroy(parser);
 
 	/* find root <svg> element */
-	svg = xmlDocGetRootElement(document);
-	if (!svg)
+	exc = dom_document_get_document_element(document, &svg);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	exc = dom_node_get_node_name(svg, &svg_name);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(svg);
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	if (lwc_intern_string("svg", 3 /* SLEN("svg") */,
+			      &svg_name_lwc) != lwc_error_ok) {
+		dom_string_unref(svg_name);
+		dom_node_unref(svg);
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	if (!dom_string_caseless_lwc_isequal(svg_name, svg_name_lwc)) {
+		lwc_string_unref(svg_name_lwc);
+		dom_string_unref(svg_name);
+		dom_node_unref(svg);
+		dom_node_unref(document);
 		return svgtiny_NOT_SVG;
-	if (strcmp((const char *) svg->name, "svg") != 0)
-		return svgtiny_NOT_SVG;
+	}
+
+	lwc_string_unref(svg_name_lwc);
+	dom_string_unref(svg_name);
 
 	/* get graphic dimensions */
+	memset(&state, 0, sizeof(state));
 	state.diagram = diagram;
 	state.document = document;
 	state.viewport_width = viewport_width;
 	state.viewport_height = viewport_height;
+
+#define SVGTINY_STRING_ACTION2(s,n)					\
+	if (dom_string_create_interned((const uint8_t *) #n,		\
+				       strlen(#n), &state.interned_##s)	\
+	    != DOM_NO_ERR) {						\
+		code = svgtiny_LIBDOM_ERROR;				\
+		goto cleanup;						\
+	}
+#include "svgtiny_strings.h"
+#undef SVGTINY_STRING_ACTION2
+
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
 	diagram->width = width;
 	diagram->height = height;
@@ -134,9 +201,15 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	/* parse tree */
 	code = svgtiny_parse_svg(svg, state);
 
-	/* free XML tree */
-	xmlFreeDoc(document);
+	dom_node_unref(svg);
+	dom_node_unref(document);
 
+cleanup:
+#define SVGTINY_STRING_ACTION2(s,n)			\
+	if (state.interned_##s != NULL)			\
+		dom_string_unref(state.interned_##s);
+//#include "svgtiny_strings.h"
+#undef SVGTINY_STRING_ACTION2
 	return code;
 }
 
@@ -145,21 +218,27 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
  * Parse a <svg> or <g> element node.
  */
 
-svgtiny_code svgtiny_parse_svg(xmlNode *svg,
+svgtiny_code svgtiny_parse_svg(dom_element *svg,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
-	xmlAttr *view_box;
-	xmlNode *child;
+	dom_string *view_box;
+	dom_element *child;
+	dom_exception exc;
 
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
 	svgtiny_parse_paint_attributes(svg, &state);
 	svgtiny_parse_font_attributes(svg, &state);
 
-	/* parse viewBox */
-	view_box = xmlHasProp(svg, (const xmlChar *) "viewBox");
+	exc = dom_element_get_attribute(svg, state.interned_viewBox,
+					&view_box);
+	if (exc != DOM_NO_ERR) {
+		return svgtiny_LIBDOM_ERROR;
+	}
+
 	if (view_box) {
-		const char *s = (const char *) view_box->children->content;
+		char *s = strndup(dom_string_data(view_box),
+				  dom_string_length(view_box));
 		float min_x, min_y, vwidth, vheight;
 		if (sscanf(s, "%f,%f,%f,%f",
 				&min_x, &min_y, &vwidth, &vheight) == 4 ||
@@ -170,41 +249,78 @@ svgtiny_code svgtiny_parse_svg(xmlNode *svg,
 			state.ctm.e += -min_x * state.ctm.a;
 			state.ctm.f += -min_y * state.ctm.d;
 		}
+		free(s);
+		dom_string_unref(view_box);
 	}
 
 	svgtiny_parse_transform_attributes(svg, &state);
 
-	for (child = svg->children; child; child = child->next) {
+	exc = dom_node_get_first_child(svg, &child);
+	if (exc != DOM_NO_ERR) {
+		return svgtiny_LIBDOM_ERROR;
+	}
+	while (child != NULL) {
+		dom_element *next;
+		dom_node_type nodetype;
 		svgtiny_code code = svgtiny_OK;
 
-		if (child->type == XML_ELEMENT_NODE) {
-			const char *name = (const char *) child->name;
-			if (strcmp(name, "svg") == 0)
-				code = svgtiny_parse_svg(child, state);
-			else if (strcmp(name, "g") == 0)
-				code = svgtiny_parse_svg(child, state);
-			else if (strcmp(name, "a") == 0)
-				code = svgtiny_parse_svg(child, state);
-			else if (strcmp(name, "path") == 0)
-				code = svgtiny_parse_path(child, state);
-			else if (strcmp(name, "rect") == 0)
-				code = svgtiny_parse_rect(child, state);
-			else if (strcmp(name, "circle") == 0)
-				code = svgtiny_parse_circle(child, state);
-			else if (strcmp(name, "ellipse") == 0)
-				code = svgtiny_parse_ellipse(child, state);
-			else if (strcmp(name, "line") == 0)
-				code = svgtiny_parse_line(child, state);
-			else if (strcmp(name, "polyline") == 0)
-				code = svgtiny_parse_poly(child, state, false);
-			else if (strcmp(name, "polygon") == 0)
-				code = svgtiny_parse_poly(child, state, true);
-			else if (strcmp(name, "text") == 0)
-				code = svgtiny_parse_text(child, state);
+		exc = dom_node_get_node_type(child, &nodetype);
+		if (exc != DOM_NO_ERR) {
+			dom_node_unref(child);
+			return svgtiny_LIBDOM_ERROR;
 		}
-
-		if (code != svgtiny_OK)
+		if (nodetype == DOM_ELEMENT_NODE) {
+			dom_string *nodename;
+			exc = dom_node_get_node_name(child, &nodename);
+			if (exc != DOM_NO_ERR) {
+				dom_node_unref(child);
+				return svgtiny_LIBDOM_ERROR;
+			}
+			if (dom_string_caseless_isequal(state.interned_svg,
+							nodename))
+				code = svgtiny_parse_svg(child, state);
+			else if (dom_string_caseless_isequal(state.interned_g,
+							     nodename))
+				code = svgtiny_parse_svg(child, state);
+			else if (dom_string_caseless_isequal(state.interned_a,
+							     nodename))
+				code = svgtiny_parse_svg(child, state);
+			else if (dom_string_caseless_isequal(state.interned_path,
+							     nodename))
+				code = svgtiny_parse_path(child, state);
+			else if (dom_string_caseless_isequal(state.interned_rect,
+							     nodename))
+				code = svgtiny_parse_rect(child, state);
+			else if (dom_string_caseless_isequal(state.interned_circle,
+							     nodename))
+				code = svgtiny_parse_circle(child, state);
+			else if (dom_string_caseless_isequal(state.interned_ellipse,
+							     nodename))
+				code = svgtiny_parse_ellipse(child, state);
+			else if (dom_string_caseless_isequal(state.interned_line,
+							     nodename))
+				code = svgtiny_parse_line(child, state);
+			else if (dom_string_caseless_isequal(state.interned_polyline,
+							     nodename))
+				code = svgtiny_parse_poly(child, state, false);
+			else if (dom_string_caseless_isequal(state.interned_polygon,
+							     nodename))
+				code = svgtiny_parse_poly(child, state, true);
+			else if (dom_string_caseless_isequal(state.interned_text,
+							     nodename))
+				code = svgtiny_parse_text(child, state);
+			dom_string_unref(nodename);
+		}
+		if (code != svgtiny_OK) {
+			dom_node_unref(child);
 			return code;
+		}
+		exc = dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		if (exc != DOM_NO_ERR) {
+			return svgtiny_LIBDOM_ERROR;
+		}
+		child = next;
 	}
 
 	return svgtiny_OK;
@@ -218,9 +334,11 @@ svgtiny_code svgtiny_parse_svg(xmlNode *svg,
  * http://www.w3.org/TR/SVG11/paths#PathElement
  */
 
-svgtiny_code svgtiny_parse_path(xmlNode *path,
+svgtiny_code svgtiny_parse_path(dom_element *path,
 		struct svgtiny_parse_state state)
 {
+	dom_string *path_d_str;
+	dom_exception exc;
 	char *s, *path_d;
 	float *p;
 	unsigned int i;
@@ -232,17 +350,31 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
 	svgtiny_parse_transform_attributes(path, &state);
 
 	/* read d attribute */
-	s = path_d = (char *) xmlGetProp(path, (const xmlChar *) "d");
-	if (!s) {
-		state.diagram->error_line = path->line;
+	exc = dom_element_get_attribute(path, state.interned_d, &path_d_str);
+	if (exc != DOM_NO_ERR) {
+		state.diagram->error_line = -1; /* path->line; */
+		state.diagram->error_message = "path: error retrieving d attribute";
+		return svgtiny_SVG_ERROR;
+	}
+
+	if (path_d_str == NULL) {
+		state.diagram->error_line = -1; /* path->line; */
 		state.diagram->error_message = "path: missing d attribute";
 		return svgtiny_SVG_ERROR;
 	}
 
+	s = path_d = strndup(dom_string_data(path_d_str),
+			     dom_string_length(path_d_str));
+	dom_string_unref(path_d_str);
+	if (s == NULL) {
+		return svgtiny_OUT_OF_MEMORY;
+	}
 	/* allocate space for path: it will never have more elements than d */
 	p = malloc(sizeof p[0] * strlen(s));
-	if (!p)
+	if (!p) {
+		free(path_d);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	/* parse d and build path */
 	for (i = 0; s[i]; i++)
@@ -432,7 +564,7 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
 		}
 	}
 
-	xmlFree(path_d);
+	free(path_d);
 
 	if (i <= 4) {
 		/* no real segments in path */
@@ -450,7 +582,7 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
  * http://www.w3.org/TR/SVG11/shapes#RectElement
  */
 
-svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+svgtiny_code svgtiny_parse_rect(dom_element *rect,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
@@ -487,31 +619,43 @@ svgtiny_code svgtiny_parse_rect(xmlNode *rect,
  * Parse a <circle> element node.
  */
 
-svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+svgtiny_code svgtiny_parse_circle(dom_element *circle,
 		struct svgtiny_parse_state state)
 {
 	float x = 0, y = 0, r = -1;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = circle->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "cx") == 0)
-			x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "cy") == 0)
-			y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "r") == 0)
-			r = svgtiny_parse_length(content,
-					state.viewport_width, state);
-        }
+	exc = dom_element_get_attribute(circle, state.interned_cx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(circle, state.interned_cy, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(circle, state.interned_r, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		r = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(circle, &state);
 	svgtiny_parse_transform_attributes(circle, &state);
 
 	if (r < 0) {
-		state.diagram->error_line = circle->line;
+		state.diagram->error_line = -1; /* circle->line; */
 		state.diagram->error_message = "circle: r missing or negative";
 		return svgtiny_SVG_ERROR;
 	}
@@ -563,34 +707,51 @@ svgtiny_code svgtiny_parse_circle(xmlNode *circle,
  * Parse an <ellipse> element node.
  */
 
-svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
+svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 		struct svgtiny_parse_state state)
 {
 	float x = 0, y = 0, rx = -1, ry = -1;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = ellipse->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "cx") == 0)
-			x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "cy") == 0)
-			y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "rx") == 0)
-			rx = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "ry") == 0)
-			ry = svgtiny_parse_length(content,
-					state.viewport_width, state);
-        }
+	exc = dom_element_get_attribute(ellipse, state.interned_cx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_cy, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_rx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		rx = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_ry, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		ry = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(ellipse, &state);
 	svgtiny_parse_transform_attributes(ellipse, &state);
 
 	if (rx < 0 || ry < 0) {
-		state.diagram->error_line = ellipse->line;
+		state.diagram->error_line = -1; /* ellipse->line; */
 		state.diagram->error_message = "ellipse: rx or ry missing "
 				"or negative";
 		return svgtiny_SVG_ERROR;
@@ -643,29 +804,46 @@ svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
  * Parse a <line> element node.
  */
 
-svgtiny_code svgtiny_parse_line(xmlNode *line,
+svgtiny_code svgtiny_parse_line(dom_element *line,
 		struct svgtiny_parse_state state)
 {
 	float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = line->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "x1") == 0)
-			x1 = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y1") == 0)
-			y1 = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "x2") == 0)
-			x2 = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y2") == 0)
-			y2 = svgtiny_parse_length(content,
-					state.viewport_height, state);
-        }
+	exc = dom_element_get_attribute(line, state.interned_x1, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x1 = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_y1, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y1 = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_x2, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x2 = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_y2, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y2 = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(line, &state);
 	svgtiny_parse_transform_attributes(line, &state);
 
@@ -692,29 +870,40 @@ svgtiny_code svgtiny_parse_line(xmlNode *line,
  * http://www.w3.org/TR/SVG11/shapes#PolygonElement
  */
 
-svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+svgtiny_code svgtiny_parse_poly(dom_element *poly,
 		struct svgtiny_parse_state state, bool polygon)
 {
+	dom_string *points_str;
+	dom_exception exc;
 	char *s, *points;
 	float *p;
 	unsigned int i;
 
 	svgtiny_parse_paint_attributes(poly, &state);
 	svgtiny_parse_transform_attributes(poly, &state);
-
-	/* read points attribute */
-	s = points = (char *) xmlGetProp(poly, (const xmlChar *) "points");
-	if (!s) {
-		state.diagram->error_line = poly->line;
+	
+	exc = dom_element_get_attribute(poly, state.interned_points,
+					&points_str);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	
+	if (points_str == NULL) {
+		state.diagram->error_line = -1; /* poly->line; */
 		state.diagram->error_message =
 				"polyline/polygon: missing points attribute";
 		return svgtiny_SVG_ERROR;
 	}
 
+	s = points = strndup(dom_string_data(points_str),
+			     dom_string_length(points_str));
+	dom_string_unref(points_str);
+	/* read points attribute */
+	if (s == NULL)
+		return svgtiny_OUT_OF_MEMORY;
 	/* allocate space for path: it will never have more elements than s */
 	p = malloc(sizeof p[0] * strlen(s));
 	if (!p) {
-		xmlFree(points);
+		free(points);
 		return svgtiny_OUT_OF_MEMORY;
 	}
 
@@ -742,7 +931,7 @@ svgtiny_code svgtiny_parse_poly(xmlNode *poly,
         if (polygon)
 		p[i++] = svgtiny_PATH_CLOSE;
 
-	xmlFree(points);
+	free(points);
 
 	return svgtiny_add_path(p, i, &state);
 }
@@ -752,12 +941,13 @@ svgtiny_code svgtiny_parse_poly(xmlNode *poly,
  * Parse a <text> or <tspan> element node.
  */
 
-svgtiny_code svgtiny_parse_text(xmlNode *text,
+svgtiny_code svgtiny_parse_text(dom_element *text,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 	float px, py;
-	xmlNode *child;
+	dom_node *child;
+	dom_exception exc;
 
 	svgtiny_parse_position_attributes(text, state,
 			&x, &y, &width, &height);
@@ -771,27 +961,61 @@ svgtiny_code svgtiny_parse_text(xmlNode *text,
 
 	/*struct css_style style = state.style;
 	style.font_size.value.length.value *= state.ctm.a;*/
-
-	for (child = text->children; child; child = child->next) {
+	
+        exc = dom_node_get_first_child(text, &child);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	while (child != NULL) {
+		dom_node *next;
+		dom_node_type nodetype;
 		svgtiny_code code = svgtiny_OK;
 
-		if (child->type == XML_TEXT_NODE) {
+		exc = dom_node_get_node_type(child, &nodetype);
+		if (exc != DOM_NO_ERR) {
+			dom_node_unref(child);
+			return svgtiny_LIBDOM_ERROR;
+		}
+		if (nodetype == DOM_ELEMENT_NODE) {
+			dom_string *nodename;
+			exc = dom_node_get_node_name(child, &nodename);
+			if (exc != DOM_NO_ERR) {
+				dom_node_unref(child);
+				return svgtiny_LIBDOM_ERROR;
+			}
+			if (dom_string_caseless_isequal(nodename,
+							state.interned_tspan))
+				code = svgtiny_parse_text((dom_element *)child,
+							  state);
+			dom_string_unref(nodename);
+		} else if (nodetype == DOM_TEXT_NODE) {
 			struct svgtiny_shape *shape = svgtiny_add_shape(&state);
-			if (!shape)
+			dom_string *content;
+			if (shape == NULL) {
+				dom_node_unref(child);
 				return svgtiny_OUT_OF_MEMORY;
-			shape->text = strdup((const char *) child->content);
+			}
+			exc = dom_text_get_whole_text(child, &content);
+			if (exc != DOM_NO_ERR) {
+				dom_node_unref(child);
+				return svgtiny_LIBDOM_ERROR;
+			}
+			shape->text = strndup(dom_string_data(content),
+					      dom_string_length(content));
+			dom_string_unref(content);
 			shape->text_x = px;
 			shape->text_y = py;
 			state.diagram->shape_count++;
-
-		} else if (child->type == XML_ELEMENT_NODE &&
-				strcmp((const char *) child->name,
-					"tspan") == 0) {
-			code = svgtiny_parse_text(child, state);
 		}
 
-		if (!code != svgtiny_OK)
+		if (code != svgtiny_OK) {
+			dom_node_unref(child);
 			return code;
+		}
+		exc = dom_node_get_next_sibling(child, &next);
+		dom_node_unref(child);
+		if (exc != DOM_NO_ERR)
+			return svgtiny_LIBDOM_ERROR;
+		child = next;
 	}
 
 	return svgtiny_OK;
@@ -802,32 +1026,42 @@ svgtiny_code svgtiny_parse_text(xmlNode *text,
  * Parse x, y, width, and height attributes, if present.
  */
 
-void svgtiny_parse_position_attributes(const xmlNode *node,
+void svgtiny_parse_position_attributes(const dom_element *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height)
 {
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
 	*x = 0;
 	*y = 0;
 	*width = state.viewport_width;
 	*height = state.viewport_height;
 
-	for (attr = node->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "x") == 0)
-			*x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y") == 0)
-			*y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "width") == 0)
-			*width = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "height") == 0)
-			*height = svgtiny_parse_length(content,
-					state.viewport_height, state);
+	exc = dom_element_get_attribute(node, state.interned_x, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*x = svgtiny_parse_length(attr, state.viewport_width, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_y, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*y = svgtiny_parse_length(attr, state.viewport_height, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_width, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*width = svgtiny_parse_length(attr, state.viewport_width,
+					      state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state.interned_height, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		*height = svgtiny_parse_length(attr, state.viewport_height,
+					       state);
+		dom_string_unref(attr);
 	}
 }
 
@@ -836,8 +1070,8 @@ void svgtiny_parse_position_attributes(const xmlNode *node,
  * Parse a length as a number of pixels.
  */
 
-float svgtiny_parse_length(const char *s, int viewport_size,
-		const struct svgtiny_parse_state state)
+static float _svgtiny_parse_length(const char *s, int viewport_size,
+				   const struct svgtiny_parse_state state)
 {
 	int num_length = strspn(s, "0123456789+-.");
 	const char *unit = s + num_length;
@@ -871,57 +1105,77 @@ float svgtiny_parse_length(const char *s, int viewport_size,
 	return 0;
 }
 
+float svgtiny_parse_length(dom_string *s, int viewport_size,
+			   const struct svgtiny_parse_state state)
+{
+	char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	float ret = _svgtiny_parse_length(ss, viewport_size, state);
+	free(ss);
+	return ret;
+}
 
 /**
  * Parse paint attributes, if present.
  */
 
-void svgtiny_parse_paint_attributes(const xmlNode *node,
+void svgtiny_parse_paint_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state)
 {
-	const xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
+	
+	exc = dom_element_get_attribute(node, state->interned_fill, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		svgtiny_parse_color(attr, &state->fill, state);
+		dom_string_unref(attr);
+	}
 
-	for (attr = node->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "fill") == 0)
-			svgtiny_parse_color(content, &state->fill, state);
-		else if (strcmp(name, "stroke") == 0)
-			svgtiny_parse_color(content, &state->stroke, state);
-		else if (strcmp(name, "stroke-width") == 0)
-			state->stroke_width = svgtiny_parse_length(content,
-					state->viewport_width, *state);
-		else if (strcmp(name, "style") == 0) {
-			const char *style = (const char *)
-					attr->children->content;
-			const char *s;
-			char *value;
-			if ((s = strstr(style, "fill:"))) {
-				s += 5;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				svgtiny_parse_color(value, &state->fill, state);
-				free(value);
-			}
-			if ((s = strstr(style, "stroke:"))) {
-				s += 7;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				svgtiny_parse_color(value, &state->stroke, state);
-				free(value);
-			}
-			if ((s = strstr(style, "stroke-width:"))) {
-				s += 13;
-				while (*s == ' ')
-					s++;
-				value = strndup(s, strcspn(s, "; "));
-				state->stroke_width = svgtiny_parse_length(value,
+	exc = dom_element_get_attribute(node, state->interned_stroke, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		svgtiny_parse_color(attr, &state->stroke, state);
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state->interned_stroke_width, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		state->stroke_width = svgtiny_parse_length(attr,
 						state->viewport_width, *state);
-				free(value);
-			}
+		dom_string_unref(attr);
+	}
+
+	exc = dom_element_get_attribute(node, state->interned_style, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		char *style = strndup(dom_string_data(attr),
+				      dom_string_length(attr));
+		const char *s;
+		char *value;
+		if ((s = strstr(style, "fill:"))) {
+			s += 5;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			_svgtiny_parse_color(value, &state->fill, state);
+			free(value);
 		}
+		if ((s = strstr(style, "stroke:"))) {
+			s += 7;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			_svgtiny_parse_color(value, &state->stroke, state);
+			free(value);
+		}
+		if ((s = strstr(style, "stroke-width:"))) {
+			s += 13;
+			while (*s == ' ')
+				s++;
+			value = strndup(s, strcspn(s, "; "));
+			state->stroke_width = _svgtiny_parse_length(value,
+						state->viewport_width, *state);
+			free(value);
+		}
+		free(style);
+		dom_string_unref(attr);
 	}
 }
 
@@ -930,7 +1184,7 @@ void svgtiny_parse_paint_attributes(const xmlNode *node,
  * Parse a colour.
  */
 
-void svgtiny_parse_color(const char *s, svgtiny_colour *c,
+static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state)
 {
 	unsigned int r, g, b;
@@ -989,14 +1243,25 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 	}
 }
 
+void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
+		struct svgtiny_parse_state *state)
+{
+	char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	_svgtiny_parse_color(ss, c, state);
+	free(ss);
+}
 
 /**
  * Parse font attributes, if present.
  */
 
-void svgtiny_parse_font_attributes(const xmlNode *node,
+void svgtiny_parse_font_attributes(const dom_element *node,
 		struct svgtiny_parse_state *state)
 {
+	/* TODO: Implement this, it never used to be */
+	UNUSED(node);
+	UNUSED(state);
+#ifdef WRITTEN_THIS_PROPERLY
 	const xmlAttr *attr;
 
 	UNUSED(state);
@@ -1012,6 +1277,7 @@ void svgtiny_parse_font_attributes(const xmlNode *node,
 			}*/
 		}
         }
+#endif
 }
 
 
@@ -1021,18 +1287,23 @@ void svgtiny_parse_font_attributes(const xmlNode *node,
  * http://www.w3.org/TR/SVG11/coords#TransformAttribute
  */
 
-void svgtiny_parse_transform_attributes(xmlNode *node,
+void svgtiny_parse_transform_attributes(dom_element *node,
 		struct svgtiny_parse_state *state)
 {
 	char *transform;
-
-	/* parse transform */
-	transform = (char *) xmlGetProp(node, (const xmlChar *) "transform");
-	if (transform) {
+	dom_string *attr;
+	dom_exception exc;
+	
+	exc = dom_element_get_attribute(node, state->interned_transform,
+					&attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		transform = strndup(dom_string_data(attr),
+				    dom_string_length(attr));
 		svgtiny_parse_transform(transform, &state->ctm.a, &state->ctm.b,
 				&state->ctm.c, &state->ctm.d,
 				&state->ctm.e, &state->ctm.f);
-		xmlFree(transform);
+		free(transform);
+		dom_string_unref(attr);
 	}
 }
 
