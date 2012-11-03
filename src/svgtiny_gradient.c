@@ -188,7 +188,8 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 			dom_element *stop;
 			float offset = -1;
 			svgtiny_colour color = svgtiny_TRANSPARENT;
-			exc = dom_nodelist_item(stops, stopnr, &stop);
+			exc = dom_nodelist_item(stops, stopnr,
+						(dom_node **) (void *) &stop);
 			if (exc != DOM_NO_ERR)
 				continue;
 			exc = dom_element_get_attribute(stop,

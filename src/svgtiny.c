@@ -263,7 +263,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 
 	svgtiny_parse_transform_attributes(svg, &state);
 
-	exc = dom_node_get_first_child(svg, &child);
+	exc = dom_node_get_first_child(svg, (dom_node **) (void *) &child);
 	if (exc != DOM_NO_ERR) {
 		return svgtiny_LIBDOM_ERROR;
 	}
@@ -323,7 +323,8 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 			dom_node_unref(child);
 			return code;
 		}
-		exc = dom_node_get_next_sibling(child, &next);
+		exc = dom_node_get_next_sibling(child,
+						(dom_node **) (void *) &next);
 		dom_node_unref(child);
 		if (exc != DOM_NO_ERR) {
 			return svgtiny_LIBDOM_ERROR;
