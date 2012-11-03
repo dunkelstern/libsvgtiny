@@ -51,6 +51,12 @@ struct svgtiny_parse_state {
 	struct {
 		float a, b, c, d, e, f;
 	} gradient_transform;
+
+	/* Interned strings */
+#define SVGTINY_STRING_ACTION(n) dom_string *interned_##n;
+#include "svgtiny_strings.h"
+#undef SVGTINY_STRING_ACTION
+
 };
 
 struct svgtiny_list;
