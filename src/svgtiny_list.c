@@ -11,6 +11,7 @@
  */
 
 #include <assert.h>
+#include <stdlib.h>
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 

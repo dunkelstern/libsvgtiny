@@ -45,7 +45,7 @@ struct svgtiny_parse_state {
 
 	/* gradients */
 	unsigned int linear_gradient_stop_count;
-	const char *gradient_x1, *gradient_y1, *gradient_x2, *gradient_y2;
+	dom_string *gradient_x1, *gradient_y1, *gradient_x2, *gradient_y2;
 	struct svgtiny_gradient_stop gradient_stop[svgtiny_MAX_STOPS];
 	bool gradient_user_space_on_use;
 	struct {

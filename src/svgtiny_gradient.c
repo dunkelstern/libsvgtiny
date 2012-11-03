@@ -9,6 +9,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
@@ -36,10 +37,18 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	fprintf(stderr, "svgtiny_find_gradient: id \"%s\"\n", id);
 
 	state->linear_gradient_stop_count = 0;
-	state->gradient_x1 = "0%";
-	state->gradient_y1 = "0%";
-	state->gradient_x2 = "100%";
-	state->gradient_y2 = "0%";
+	if (state->gradient_x1 != NULL)
+		dom_string_unref(state->gradient_x1);
+	if (state->gradient_y1 != NULL)
+		dom_string_unref(state->gradient_y1);
+	if (state->gradient_x2 != NULL)
+		dom_string_unref(state->gradient_x2);
+	if (state->gradient_y2 != NULL)
+		dom_string_unref(state->gradient_y2);
+	state->gradient_x1 = dom_string_ref(state->interned_zero_percent);
+	state->gradient_y1 = dom_string_ref(state->interned_zero_percent);
+	state->gradient_x2 = dom_string_ref(state->interned_hundred_percent);
+	state->gradient_y2 = dom_string_ref(state->interned_zero_percent);
 	state->gradient_user_space_on_use = false;
 	state->gradient_transform.a = 1;
 	state->gradient_transform.b = 0;
@@ -88,9 +97,9 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 		struct svgtiny_parse_state *state)
 {
 	unsigned int i = 0;
-	dom_element *stop;
 	dom_string *attr;
 	dom_exception exc;
+	dom_nodelist *stops;
 	
 	exc = dom_element_get_attribute(linear, state->interned_href, &attr);
 	if (exc == DOM_NO_ERR && attr != NULL) {
@@ -102,84 +111,145 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 		}
 		dom_string_unref(attr);
 	}
+
+	exc = dom_element_get_attribute(linear, state->interned_x1, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		dom_string_unref(state->gradient_x1);
+		state->gradient_x1 = attr;
+		attr = NULL;
+	}
+
+	exc = dom_element_get_attribute(linear, state->interned_y1, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		dom_string_unref(state->gradient_y1);
+		state->gradient_y1 = attr;
+		attr = NULL;
+	}
+
+	exc = dom_element_get_attribute(linear, state->interned_x2, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		dom_string_unref(state->gradient_x2);
+		state->gradient_x2 = attr;
+		attr = NULL;
+	}
+
+	exc = dom_element_get_attribute(linear, state->interned_y2, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		dom_string_unref(state->gradient_y2);
+		state->gradient_y2 = attr;
+		attr = NULL;
+	}
 	
-	for (attr = linear->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "x1") == 0)
-			state->gradient_x1 = content;
-		else if (strcmp(name, "y1") == 0)
-			state->gradient_y1 = content;
-		else if (strcmp(name, "x2") == 0)
-			state->gradient_x2 = content;
-		else if (strcmp(name, "y2") == 0)
-			state->gradient_y2 = content;
-		else if (strcmp(name, "gradientUnits") == 0)
-			state->gradient_user_space_on_use =
-					strcmp(content, "userSpaceOnUse") == 0;
-		else if (strcmp(name, "gradientTransform") == 0) {
-			float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
-			char *s = strdup(content);
-			if (!s)
-				return svgtiny_OUT_OF_MEMORY;
-			svgtiny_parse_transform(s, &a, &b, &c, &d, &e, &f);
-			free(s);
-			fprintf(stderr, "transform %g %g %g %g %g %g\n",
-					a, b, c, d, e, f);
-			state->gradient_transform.a = a;
-			state->gradient_transform.b = b;
-			state->gradient_transform.c = c;
-			state->gradient_transform.d = d;
-			state->gradient_transform.e = e;
-			state->gradient_transform.f = f;
+	exc = dom_element_get_attribute(linear, state->interned_gradientUnits,
+					&attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		state->gradient_user_space_on_use = 
+			dom_string_isequal(attr,
+					   state->interned_userSpaceOnUse);
+		dom_string_unref(attr);
+	}
+	
+	exc = dom_element_get_attribute(linear,
+					state->interned_gradientTransform,
+					&attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+		float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+		char *s = strndup(dom_string_data(attr),
+				  dom_string_length(attr));
+		if (s == NULL) {
+			dom_string_unref(attr);
+			return svgtiny_OUT_OF_MEMORY;
 		}
+		svgtiny_parse_transform(s, &a, &b, &c, &d, &e, &f);
+		free(s);
+		fprintf(stderr, "transform %g %g %g %g %g %g\n",
+			a, b, c, d, e, f);
+		state->gradient_transform.a = a;
+		state->gradient_transform.b = b;
+		state->gradient_transform.c = c;
+		state->gradient_transform.d = d;
+		state->gradient_transform.e = e;
+		state->gradient_transform.f = f;
+		dom_string_unref(attr);
         }
-
-	for (stop = linear->children; stop; stop = stop->next) {
-		float offset = -1;
-		svgtiny_colour color = svgtiny_TRANSPARENT;
-
-		if (stop->type != XML_ELEMENT_NODE)
-			continue;
-		if (strcmp((const char *) stop->name, "stop") != 0)
-			continue;
-
-		for (attr = stop->properties; attr;
-				attr = attr->next) {
-			const char *name = (const char *) attr->name;
-			const char *content =
-					(const char *) attr->children->content;
-			if (strcmp(name, "offset") == 0)
-				offset = svgtiny_parse_gradient_offset(content);
-			else if (strcmp(name, "stop-color") == 0)
-				svgtiny_parse_color(content, &color, state);
-			else if (strcmp(name, "style") == 0) {
+	
+	exc = dom_element_get_elements_by_tag_name(linear,
+						   state->interned_stop,
+						   &stops);
+	if (exc == DOM_NO_ERR && stops != NULL) {
+		uint32_t listlen, stopnr;
+		exc = dom_nodelist_get_length(stops, &listlen);
+		if (exc != DOM_NO_ERR) {
+			dom_nodelist_unref(stops);
+			goto no_more_stops;
+		}
+		
+		for (stopnr = 0; stopnr < listlen; ++stopnr) {
+			dom_element *stop;
+			float offset = -1;
+			svgtiny_colour color = svgtiny_TRANSPARENT;
+			exc = dom_nodelist_item(stops, stopnr, &stop);
+			if (exc != DOM_NO_ERR)
+				continue;
+			exc = dom_element_get_attribute(stop,
+							state->interned_offset,
+							&attr);
+			if (exc == DOM_NO_ERR && attr != NULL) {
+				char *s = strndup(dom_string_data(attr),
+						  dom_string_length(attr));
+				offset = svgtiny_parse_gradient_offset(s);
+				free(s);
+				dom_string_unref(attr);
+			}
+			exc = dom_element_get_attribute(stop,
+							state->interned_stop_color,
+							&attr);
+			if (exc == DOM_NO_ERR && attr != NULL) {
+				svgtiny_parse_color(attr, &color, state);
+				dom_string_unref(attr);
+			}
+			exc = dom_element_get_attribute(stop,
+							state->interned_style,
+							&attr);
+			if (exc == DOM_NO_ERR && attr != NULL) {
+				char *content = strndup(dom_string_data(attr),
+							dom_string_length(attr));
 				const char *s;
-				char *value;
+				dom_string *value;
 				if ((s = strstr(content, "stop-color:"))) {
 					s += 11;
 					while (*s == ' ')
 						s++;
-					value = strndup(s, strcspn(s, "; "));
-					svgtiny_parse_color(value, &color,
-							state);
-					free(value);
+					exc = dom_string_create_interned(
+						(const uint8_t *) s,
+						strcspn(s, "; "),
+						&value);
+					if (exc != DOM_NO_ERR && 
+					    value != NULL) {
+						svgtiny_parse_color(value,
+								    &color,
+								    state);
+						dom_string_unref(value);
+					}
 				}
+				free(content);
+				dom_string_unref(attr);
 			}
+			if (offset != -1 && color != svgtiny_TRANSPARENT) {
+				fprintf(stderr, "stop %g %x\n", offset, color);
+				state->gradient_stop[i].offset = offset;
+				state->gradient_stop[i].color = color;
+				i++;
+			}
+			dom_node_unref(stop);
+			if (i == svgtiny_MAX_STOPS)
+				break;
 		}
-
-		if (offset != -1 && color != svgtiny_TRANSPARENT) {
-			fprintf(stderr, "stop %g %x\n", offset, color);
-			state->gradient_stop[i].offset = offset;
-			state->gradient_stop[i].color = color;
-			i++;
-		}
-
-		if (i == svgtiny_MAX_STOPS)
-			break;
+		
+		dom_nodelist_unref(stops);
 	}
-
-	if (i)
+no_more_stops:	
+	if (i > 0)
 		state->linear_gradient_stop_count = i;
 
 	return svgtiny_OK;
@@ -246,9 +316,16 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	#endif
 
 	/* compute gradient vector */
-	fprintf(stderr, "x1 %s, y1 %s, x2 %s, y2 %s\n",
-			state->gradient_x1, state->gradient_y1,
-			state->gradient_x2, state->gradient_y2);
+	fprintf(stderr, "x1 %*s, y1 %*s, x2 %*s, y2 %*s\n",
+		dom_string_length(state->gradient_x1),
+		dom_string_data(state->gradient_x1),
+		dom_string_length(state->gradient_y1),
+		dom_string_data(state->gradient_y1),
+		dom_string_length(state->gradient_x2),
+		dom_string_data(state->gradient_x2),
+		dom_string_length(state->gradient_y2),
+		dom_string_data(state->gradient_y2));
+
 	if (!state->gradient_user_space_on_use) {
 		gradient_x0 = object_x0 +
 				svgtiny_parse_length(state->gradient_x1,

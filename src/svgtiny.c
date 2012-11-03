@@ -162,6 +162,7 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	dom_string_unref(svg_name);
 
 	/* get graphic dimensions */
+	memset(&state, 0, sizeof(state));
 	state.diagram = diagram;
 	state.document = document;
 	state.viewport_width = viewport_width;
