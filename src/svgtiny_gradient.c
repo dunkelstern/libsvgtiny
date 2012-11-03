@@ -105,7 +105,7 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 	if (exc == DOM_NO_ERR && attr != NULL) {
 		if (dom_string_data(attr)[0] == (uint8_t) '#') {
 			char *s = strndup(dom_string_data(attr) + 1,
-					  dom_string_length(attr) - 1);
+					  dom_string_byte_length(attr) - 1);
 			svgtiny_find_gradient(s, state);
 			free(s);
 		}
@@ -155,7 +155,7 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 	if (exc == DOM_NO_ERR && attr != NULL) {
 		float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
 		char *s = strndup(dom_string_data(attr),
-				  dom_string_length(attr));
+				  dom_string_byte_length(attr));
 		if (s == NULL) {
 			dom_string_unref(attr);
 			return svgtiny_OUT_OF_MEMORY;
@@ -197,7 +197,7 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 							&attr);
 			if (exc == DOM_NO_ERR && attr != NULL) {
 				char *s = strndup(dom_string_data(attr),
-						  dom_string_length(attr));
+						  dom_string_byte_length(attr));
 				offset = svgtiny_parse_gradient_offset(s);
 				free(s);
 				dom_string_unref(attr);
@@ -214,7 +214,7 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 							&attr);
 			if (exc == DOM_NO_ERR && attr != NULL) {
 				char *content = strndup(dom_string_data(attr),
-							dom_string_length(attr));
+							dom_string_byte_length(attr));
 				const char *s;
 				dom_string *value;
 				if ((s = strstr(content, "stop-color:"))) {
@@ -315,17 +315,6 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 	fprintf(stderr, "object bbox: (%g %g) (%g %g)\n",
 			object_x0, object_y0, object_x1, object_y1);
 	#endif
-
-	/* compute gradient vector */
-	fprintf(stderr, "x1 %*s, y1 %*s, x2 %*s, y2 %*s\n",
-		dom_string_length(state->gradient_x1),
-		dom_string_data(state->gradient_x1),
-		dom_string_length(state->gradient_y1),
-		dom_string_data(state->gradient_y1),
-		dom_string_length(state->gradient_x2),
-		dom_string_data(state->gradient_x2),
-		dom_string_length(state->gradient_y2),
-		dom_string_data(state->gradient_y2));
 
 	if (!state->gradient_user_space_on_use) {
 		gradient_x0 = object_x0 +

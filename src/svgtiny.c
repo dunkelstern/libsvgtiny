@@ -246,7 +246,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 
 	if (view_box) {
 		char *s = strndup(dom_string_data(view_box),
-				  dom_string_length(view_box));
+				  dom_string_byte_length(view_box));
 		float min_x, min_y, vwidth, vheight;
 		if (sscanf(s, "%f,%f,%f,%f",
 				&min_x, &min_y, &vwidth, &vheight) == 4 ||
@@ -373,7 +373,7 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 	}
 
 	s = path_d = strndup(dom_string_data(path_d_str),
-			     dom_string_length(path_d_str));
+			     dom_string_byte_length(path_d_str));
 	dom_string_unref(path_d_str);
 	if (s == NULL) {
 		return svgtiny_OUT_OF_MEMORY;
@@ -904,7 +904,7 @@ svgtiny_code svgtiny_parse_poly(dom_element *poly,
 	}
 
 	s = points = strndup(dom_string_data(points_str),
-			     dom_string_length(points_str));
+			     dom_string_byte_length(points_str));
 	dom_string_unref(points_str);
 	/* read points attribute */
 	if (s == NULL)
@@ -1009,7 +1009,7 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 				return svgtiny_LIBDOM_ERROR;
 			}
 			shape->text = strndup(dom_string_data(content),
-					      dom_string_length(content));
+					      dom_string_byte_length(content));
 			dom_string_unref(content);
 			shape->text_x = px;
 			shape->text_y = py;
@@ -1117,7 +1117,7 @@ static float _svgtiny_parse_length(const char *s, int viewport_size,
 float svgtiny_parse_length(dom_string *s, int viewport_size,
 			   const struct svgtiny_parse_state state)
 {
-	char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	char *ss = strndup(dom_string_data(s), dom_string_byte_length(s));
 	float ret = _svgtiny_parse_length(ss, viewport_size, state);
 	free(ss);
 	return ret;
@@ -1155,7 +1155,7 @@ void svgtiny_parse_paint_attributes(const dom_element *node,
 	exc = dom_element_get_attribute(node, state->interned_style, &attr);
 	if (exc == DOM_NO_ERR && attr != NULL) {
 		char *style = strndup(dom_string_data(attr),
-				      dom_string_length(attr));
+				      dom_string_byte_length(attr));
 		const char *s;
 		char *value;
 		if ((s = strstr(style, "fill:"))) {
@@ -1255,7 +1255,7 @@ static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state)
 {
-	char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	char *ss = strndup(dom_string_data(s), dom_string_byte_length(s));
 	_svgtiny_parse_color(ss, c, state);
 	free(ss);
 }
@@ -1307,7 +1307,7 @@ void svgtiny_parse_transform_attributes(dom_element *node,
 					&attr);
 	if (exc == DOM_NO_ERR && attr != NULL) {
 		transform = strndup(dom_string_data(attr),
-				    dom_string_length(attr));
+				    dom_string_byte_length(attr));
 		svgtiny_parse_transform(transform, &state->ctm.a, &state->ctm.b,
 				&state->ctm.c, &state->ctm.d,
 				&state->ctm.e, &state->ctm.f);
