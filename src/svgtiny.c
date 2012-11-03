@@ -334,6 +334,8 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 svgtiny_code svgtiny_parse_path(dom_element *path,
 		struct svgtiny_parse_state state)
 {
+	dom_string *path_d_str;
+	dom_exception exc;
 	char *s, *path_d;
 	float *p;
 	unsigned int i;
@@ -345,17 +347,31 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 	svgtiny_parse_transform_attributes(path, &state);
 
 	/* read d attribute */
-	s = path_d = (char *) xmlGetProp(path, (const xmlChar *) "d");
-	if (!s) {
-		state.diagram->error_line = path->line;
+	exc = dom_element_get_attribute(path, state.interned_d, &path_d_str);
+	if (exc != DOM_NO_ERR) {
+		state.diagram->error_line = -1; /* path->line; */
+		state.diagram->error_message = "path: error retrieving d attribute";
+		return svgtiny_SVG_ERROR;
+	}
+
+	if (path_d_str == NULL) {
+		state.diagram->error_line = -1; /* path->line; */
 		state.diagram->error_message = "path: missing d attribute";
 		return svgtiny_SVG_ERROR;
 	}
 
+	s = path_d = strndup(dom_string_data(path_d_str),
+			     dom_string_length(path_d_str));
+	dom_string_unref(path_d_str);
+	if (s == NULL) {
+		return svgtiny_OUT_OF_MEMORY;
+	}
 	/* allocate space for path: it will never have more elements than d */
 	p = malloc(sizeof p[0] * strlen(s));
-	if (!p)
+	if (!p) {
+		free(path_d);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	/* parse d and build path */
 	for (i = 0; s[i]; i++)
@@ -545,7 +561,7 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 		}
 	}
 
-	xmlFree(path_d);
+	free(path_d);
 
 	if (i <= 4) {
 		/* no real segments in path */
@@ -605,26 +621,38 @@ svgtiny_code svgtiny_parse_circle(dom_element *circle,
 {
 	float x = 0, y = 0, r = -1;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = circle->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "cx") == 0)
-			x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "cy") == 0)
-			y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "r") == 0)
-			r = svgtiny_parse_length(content,
-					state.viewport_width, state);
-        }
+	exc = dom_element_get_attribute(circle, state.interned_cx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(circle, state.interned_cy, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(circle, state.interned_r, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		r = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(circle, &state);
 	svgtiny_parse_transform_attributes(circle, &state);
 
 	if (r < 0) {
-		state.diagram->error_line = circle->line;
+		state.diagram->error_line = -1; /* circle->line; */
 		state.diagram->error_message = "circle: r missing or negative";
 		return svgtiny_SVG_ERROR;
 	}
@@ -681,29 +709,46 @@ svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 {
 	float x = 0, y = 0, rx = -1, ry = -1;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = ellipse->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "cx") == 0)
-			x = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "cy") == 0)
-			y = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "rx") == 0)
-			rx = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "ry") == 0)
-			ry = svgtiny_parse_length(content,
-					state.viewport_width, state);
-        }
+	exc = dom_element_get_attribute(ellipse, state.interned_cx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_cy, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_rx, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		rx = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(ellipse, state.interned_ry, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		ry = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(ellipse, &state);
 	svgtiny_parse_transform_attributes(ellipse, &state);
 
 	if (rx < 0 || ry < 0) {
-		state.diagram->error_line = ellipse->line;
+		state.diagram->error_line = -1; /* ellipse->line; */
 		state.diagram->error_message = "ellipse: rx or ry missing "
 				"or negative";
 		return svgtiny_SVG_ERROR;
@@ -761,24 +806,41 @@ svgtiny_code svgtiny_parse_line(dom_element *line,
 {
 	float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 	float *p;
-	xmlAttr *attr;
+	dom_string *attr;
+	dom_exception exc;
 
-	for (attr = line->properties; attr; attr = attr->next) {
-		const char *name = (const char *) attr->name;
-		const char *content = (const char *) attr->children->content;
-		if (strcmp(name, "x1") == 0)
-			x1 = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y1") == 0)
-			y1 = svgtiny_parse_length(content,
-					state.viewport_height, state);
-		else if (strcmp(name, "x2") == 0)
-			x2 = svgtiny_parse_length(content,
-					state.viewport_width, state);
-		else if (strcmp(name, "y2") == 0)
-			y2 = svgtiny_parse_length(content,
-					state.viewport_height, state);
-        }
+	exc = dom_element_get_attribute(line, state.interned_x1, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x1 = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_y1, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y1 = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_x2, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		x2 = svgtiny_parse_length(attr, state.viewport_width, state);
+	}
+	dom_string_unref(attr);
+
+	exc = dom_element_get_attribute(line, state.interned_y2, &attr);
+	if (exc != DOM_NO_ERR)
+		return svgtiny_LIBDOM_ERROR;
+	if (attr != NULL) {
+		y2 = svgtiny_parse_length(attr, state.viewport_height, state);
+	}
+	dom_string_unref(attr);
+
 	svgtiny_parse_paint_attributes(line, &state);
 	svgtiny_parse_transform_attributes(line, &state);
 
@@ -949,8 +1011,8 @@ void svgtiny_parse_position_attributes(const dom_element *node,
  * Parse a length as a number of pixels.
  */
 
-float svgtiny_parse_length(const char *s, int viewport_size,
-		const struct svgtiny_parse_state state)
+static float _svgtiny_parse_length(const char *s, int viewport_size,
+				   const struct svgtiny_parse_state state)
 {
 	int num_length = strspn(s, "0123456789+-.");
 	const char *unit = s + num_length;
@@ -984,6 +1046,14 @@ float svgtiny_parse_length(const char *s, int viewport_size,
 	return 0;
 }
 
+float svgtiny_parse_length(dom_string *s, int viewport_size,
+			   const struct svgtiny_parse_state state)
+{
+	const char *ss = strndup(dom_string_data(s), dom_string_length(s));
+	float ret = _svgtiny_parse_length(ss, viewport_size, state);
+	free(ss);
+	return ret;
+}
 
 /**
  * Parse paint attributes, if present.

@@ -62,7 +62,7 @@ struct svgtiny_parse_state {
 struct svgtiny_list;
 
 /* svgtiny.c */
-float svgtiny_parse_length(const char *s, int viewport_size,
+float svgtiny_parse_length(dom_string *s, int viewport_size,
 		const struct svgtiny_parse_state state);
 void svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
