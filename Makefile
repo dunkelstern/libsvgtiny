@@ -31,18 +31,15 @@ else
   CFLAGS := $(CFLAGS) -Dinline="__inline__"
 endif
 
-# LibXML2
+# libdom
 ifneq ($(PKGCONFIG),)
   CFLAGS := $(CFLAGS) \
-		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --cflags libxml-2.0)
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --cflags libdom)
   LDFLAGS := $(LDFLAGS) \
-		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libxml-2.0)
+		$(shell $(PKGCONFIG) $(PKGCONFIGFLAGS) --libs libdom)
 else
-  ifeq ($(TARGET),beos)
-    CFLAGS := $(CFLAGS) -I/boot/home/config/include/libxml2
-  endif
-  CFLAGS := $(CFLAGS) -I$(PREFIX)/include/libxml2
-  LDFLAGS := $(CFLAGS) -lxml2
+  CFLAGS := $(CFLAGS) -I$(PREFIX)/include
+  LDFLAGS := $(CFLAGS) -ldom
 endif
 
 include $(NSBUILD)/Makefile.top

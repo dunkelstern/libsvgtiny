@@ -10,6 +10,8 @@
 
 #include <stdbool.h>
 
+#include <dom/dom.h>
+
 #ifndef UNUSED
 #define UNUSED(x) ((void) (x))
 #endif
@@ -24,7 +26,7 @@ struct svgtiny_gradient_stop {
 
 struct svgtiny_parse_state {
 	struct svgtiny_diagram *diagram;
-	xmlDoc *document;
+	dom_document *document;
 
 	float viewport_width;
 	float viewport_height;
@@ -75,7 +77,7 @@ char *svgtiny_strndup(const char *s, size_t n);
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state);
 svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
-xmlNode *svgtiny_find_element_by_id(xmlNode *node, const char *id);
+dom_node *svgtiny_find_element_by_id(dom_node *node, const char *id);
 
 /* svgtiny_list.c */
 struct svgtiny_list *svgtiny_list_create(size_t item_size);

@@ -3,6 +3,7 @@
  * Licensed under the MIT License,
  *                http://opensource.org/licenses/mit-license.php
  * Copyright 2008-2009 James Bursa <james@semichrome.net>
+ * Copyright 2012 Daniel Silverstone <dsilvers@netsurf-browser.org>
  */
 
 #include <assert.h>
@@ -12,8 +13,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libxml/parser.h>
-#include <libxml/debugXML.h>
+
+#include <dom/dom.h>
+#include <dom/bindings/xml/xmlparser.h>
+
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
@@ -23,30 +26,30 @@
 
 #define KAPPA		0.5522847498
 
-static svgtiny_code svgtiny_parse_svg(xmlNode *svg,
+static svgtiny_code svgtiny_parse_svg(dom_node *svg,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_path(xmlNode *path,
+static svgtiny_code svgtiny_parse_path(dom_node *path,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+static svgtiny_code svgtiny_parse_rect(dom_node *rect,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+static svgtiny_code svgtiny_parse_circle(dom_node *circle,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
+static svgtiny_code svgtiny_parse_ellipse(dom_node *ellipse,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_line(xmlNode *line,
+static svgtiny_code svgtiny_parse_line(dom_node *line,
 		struct svgtiny_parse_state state);
-static svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+static svgtiny_code svgtiny_parse_poly(dom_node *poly,
 		struct svgtiny_parse_state state, bool polygon);
-static svgtiny_code svgtiny_parse_text(xmlNode *text,
+static svgtiny_code svgtiny_parse_text(dom_node *text,
 		struct svgtiny_parse_state state);
-static void svgtiny_parse_position_attributes(const xmlNode *node,
+static void svgtiny_parse_position_attributes(const dom_node *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height);
-static void svgtiny_parse_paint_attributes(const xmlNode *node,
+static void svgtiny_parse_paint_attributes(const dom_node *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_font_attributes(const xmlNode *node,
+static void svgtiny_parse_font_attributes(const dom_node *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_transform_attributes(xmlNode *node,
+static void svgtiny_parse_transform_attributes(dom_node *node,
 		struct svgtiny_parse_state *state);
 static svgtiny_code svgtiny_add_path(float *p, unsigned int n,
 		struct svgtiny_parse_state *state);
@@ -72,6 +75,12 @@ struct svgtiny_diagram *svgtiny_create(void)
 	return diagram;
 }
 
+static void ignore_msg(uint32_t severity, void *ctx, const char *msg, ...)
+{
+	UNUSED(severity);
+	UNUSED(ctx);
+	UNUSED(msg);
+}
 
 /**
  * Parse a block of memory into a svgtiny_diagram.
@@ -81,8 +90,13 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		const char *buffer, size_t size, const char *url,
 		int viewport_width, int viewport_height)
 {
-	xmlDoc *document;
-	xmlNode *svg;
+	dom_document *document;
+	dom_exception exc;
+	dom_xml_parser *parser;
+	dom_xml_error err;
+	dom_node *svg;
+	dom_string *svg_name;
+	lwc_string *svg_name_lwc;
 	struct svgtiny_parse_state state;
 	float x, y, width, height;
 	svgtiny_code code;
@@ -91,20 +105,62 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	assert(buffer);
 	assert(url);
 
-	/* parse XML to tree */
-	document = xmlReadMemory(buffer, size, url, 0,
-			XML_PARSE_NONET | XML_PARSE_COMPACT);
-	if (!document)
-		return svgtiny_LIBXML_ERROR;
+	UNUSED(url);
 
-	/*xmlDebugDumpDocument(stderr, document);*/
+	parser = dom_xml_parser_create(NULL, NULL,
+				       ignore_msg, NULL, &document);
+
+	if (parser == NULL)
+		return svgtiny_LIBDOM_ERROR;
+
+	err = dom_xml_parser_parse_chunk(parser, (uint8_t *)buffer, size);
+	if (err != DOM_XML_OK) {
+		dom_node_unref(document);
+		dom_xml_parser_destroy(parser);
+		return svgtiny_LIBDOM_ERROR;
+	}
+
+	err = dom_xml_parser_completed(parser);
+	if (err != DOM_XML_OK) {
+		dom_node_unref(document);
+		dom_xml_parser_destroy(parser);
+		return svgtiny_LIBDOM_ERROR;
+	}
+
+	/* We're done parsing, drop the parser.
+	 * We now own the document entirely.
+	 */
+	dom_xml_parser_destroy(parser);
 
 	/* find root <svg> element */
-	svg = xmlDocGetRootElement(document);
-	if (!svg)
+	exc = dom_document_get_document_element(document, &svg);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	exc = dom_node_get_node_name(svg, &svg_name);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(svg);
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	if (lwc_intern_string("svg", 3 /* SLEN("svg") */,
+			      &svg_name_lwc) != lwc_error_ok) {
+		dom_string_unref(svg_name);
+		dom_node_unref(svg);
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+	if (!dom_string_caseless_lwc_isequal(svg_name, svg_name_lwc)) {
+		lwc_string_unref(svg_name_lwc);
+		dom_string_unref(svg_name);
+		dom_node_unref(svg);
+		dom_node_unref(document);
 		return svgtiny_NOT_SVG;
-	if (strcmp((const char *) svg->name, "svg") != 0)
-		return svgtiny_NOT_SVG;
+	}
+
+	lwc_string_unref(svg_name_lwc);
+	dom_string_unref(svg_name);
 
 	/* get graphic dimensions */
 	state.diagram = diagram;
@@ -134,8 +190,8 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	/* parse tree */
 	code = svgtiny_parse_svg(svg, state);
 
-	/* free XML tree */
-	xmlFreeDoc(document);
+	dom_node_unref(svg);
+	dom_node_unref(document);
 
 	return code;
 }
@@ -145,12 +201,12 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
  * Parse a <svg> or <g> element node.
  */
 
-svgtiny_code svgtiny_parse_svg(xmlNode *svg,
+svgtiny_code svgtiny_parse_svg(dom_node *svg,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 	xmlAttr *view_box;
-	xmlNode *child;
+	dom_node *child;
 
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
 	svgtiny_parse_paint_attributes(svg, &state);
@@ -218,7 +274,7 @@ svgtiny_code svgtiny_parse_svg(xmlNode *svg,
  * http://www.w3.org/TR/SVG11/paths#PathElement
  */
 
-svgtiny_code svgtiny_parse_path(xmlNode *path,
+svgtiny_code svgtiny_parse_path(dom_node *path,
 		struct svgtiny_parse_state state)
 {
 	char *s, *path_d;
@@ -450,7 +506,7 @@ svgtiny_code svgtiny_parse_path(xmlNode *path,
  * http://www.w3.org/TR/SVG11/shapes#RectElement
  */
 
-svgtiny_code svgtiny_parse_rect(xmlNode *rect,
+svgtiny_code svgtiny_parse_rect(dom_node *rect,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
@@ -487,7 +543,7 @@ svgtiny_code svgtiny_parse_rect(xmlNode *rect,
  * Parse a <circle> element node.
  */
 
-svgtiny_code svgtiny_parse_circle(xmlNode *circle,
+svgtiny_code svgtiny_parse_circle(dom_node *circle,
 		struct svgtiny_parse_state state)
 {
 	float x = 0, y = 0, r = -1;
@@ -563,7 +619,7 @@ svgtiny_code svgtiny_parse_circle(xmlNode *circle,
  * Parse an <ellipse> element node.
  */
 
-svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
+svgtiny_code svgtiny_parse_ellipse(dom_node *ellipse,
 		struct svgtiny_parse_state state)
 {
 	float x = 0, y = 0, rx = -1, ry = -1;
@@ -643,7 +699,7 @@ svgtiny_code svgtiny_parse_ellipse(xmlNode *ellipse,
  * Parse a <line> element node.
  */
 
-svgtiny_code svgtiny_parse_line(xmlNode *line,
+svgtiny_code svgtiny_parse_line(dom_node *line,
 		struct svgtiny_parse_state state)
 {
 	float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
@@ -692,7 +748,7 @@ svgtiny_code svgtiny_parse_line(xmlNode *line,
  * http://www.w3.org/TR/SVG11/shapes#PolygonElement
  */
 
-svgtiny_code svgtiny_parse_poly(xmlNode *poly,
+svgtiny_code svgtiny_parse_poly(dom_node *poly,
 		struct svgtiny_parse_state state, bool polygon)
 {
 	char *s, *points;
@@ -752,12 +808,12 @@ svgtiny_code svgtiny_parse_poly(xmlNode *poly,
  * Parse a <text> or <tspan> element node.
  */
 
-svgtiny_code svgtiny_parse_text(xmlNode *text,
+svgtiny_code svgtiny_parse_text(dom_node *text,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
 	float px, py;
-	xmlNode *child;
+	dom_node *child;
 
 	svgtiny_parse_position_attributes(text, state,
 			&x, &y, &width, &height);
@@ -802,7 +858,7 @@ svgtiny_code svgtiny_parse_text(xmlNode *text,
  * Parse x, y, width, and height attributes, if present.
  */
 
-void svgtiny_parse_position_attributes(const xmlNode *node,
+void svgtiny_parse_position_attributes(const dom_node *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height)
 {
@@ -876,7 +932,7 @@ float svgtiny_parse_length(const char *s, int viewport_size,
  * Parse paint attributes, if present.
  */
 
-void svgtiny_parse_paint_attributes(const xmlNode *node,
+void svgtiny_parse_paint_attributes(const dom_node *node,
 		struct svgtiny_parse_state *state)
 {
 	const xmlAttr *attr;
@@ -994,7 +1050,7 @@ void svgtiny_parse_color(const char *s, svgtiny_colour *c,
  * Parse font attributes, if present.
  */
 
-void svgtiny_parse_font_attributes(const xmlNode *node,
+void svgtiny_parse_font_attributes(const dom_node *node,
 		struct svgtiny_parse_state *state)
 {
 	const xmlAttr *attr;
@@ -1021,7 +1077,7 @@ void svgtiny_parse_font_attributes(const xmlNode *node,
  * http://www.w3.org/TR/SVG11/coords#TransformAttribute
  */
 
-void svgtiny_parse_transform_attributes(xmlNode *node,
+void svgtiny_parse_transform_attributes(dom_node *node,
 		struct svgtiny_parse_state *state)
 {
 	char *transform;

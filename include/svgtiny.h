@@ -8,8 +8,6 @@
 #ifndef SVGTINY_H
 #define SVGTINY_H
 
-#include <libxml/parser.h>
-
 typedef int svgtiny_colour;
 #define svgtiny_TRANSPARENT 0x1000000
 #ifdef __riscos__
@@ -47,7 +45,7 @@ struct svgtiny_diagram {
 typedef enum {
 	svgtiny_OK,
 	svgtiny_OUT_OF_MEMORY,
-	svgtiny_LIBXML_ERROR,
+	svgtiny_LIBDOM_ERROR,
 	svgtiny_NOT_SVG,
 	svgtiny_SVG_ERROR
 } svgtiny_code;
