@@ -17,7 +17,7 @@ WARNFLAGS := -Wall -W -Wundef -Wpointer-arith -Wcast-align \
 	-Wmissing-declarations -Wnested-externs -pedantic
 # BeOS/Haiku/AmigaOS standard library headers create warnings
 ifneq ($(TARGET),beos)
-  ifneq ($(TARGET),AmigaOS)
+  ifneq ($(TARGET),amiga)
     WARNFLAGS := $(WARNFLAGS) -Werror
   endif
 endif
