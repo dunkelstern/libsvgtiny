@@ -42,12 +42,12 @@ static svgtiny_code svgtiny_parse_poly(dom_element *poly,
 		struct svgtiny_parse_state state, bool polygon);
 static svgtiny_code svgtiny_parse_text(dom_element *text,
 		struct svgtiny_parse_state state);
-static void svgtiny_parse_position_attributes(const dom_element *node,
+static void svgtiny_parse_position_attributes(dom_element *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height);
-static void svgtiny_parse_paint_attributes(const dom_element *node,
+static void svgtiny_parse_paint_attributes(dom_element *node,
 		struct svgtiny_parse_state *state);
-static void svgtiny_parse_font_attributes(const dom_element *node,
+static void svgtiny_parse_font_attributes(dom_element *node,
 		struct svgtiny_parse_state *state);
 static void svgtiny_parse_transform_attributes(dom_element *node,
 		struct svgtiny_parse_state *state);
@@ -1035,7 +1035,7 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
  * Parse x, y, width, and height attributes, if present.
  */
 
-void svgtiny_parse_position_attributes(const dom_element *node,
+void svgtiny_parse_position_attributes(dom_element *node,
 		const struct svgtiny_parse_state state,
 		float *x, float *y, float *width, float *height)
 {
@@ -1127,7 +1127,7 @@ float svgtiny_parse_length(dom_string *s, int viewport_size,
  * Parse paint attributes, if present.
  */
 
-void svgtiny_parse_paint_attributes(const dom_element *node,
+void svgtiny_parse_paint_attributes(dom_element *node,
 		struct svgtiny_parse_state *state)
 {
 	dom_string *attr;
@@ -1264,7 +1264,7 @@ void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
  * Parse font attributes, if present.
  */
 
-void svgtiny_parse_font_attributes(const dom_element *node,
+void svgtiny_parse_font_attributes(dom_element *node,
 		struct svgtiny_parse_state *state)
 {
 	/* TODO: Implement this, it never used to be */
