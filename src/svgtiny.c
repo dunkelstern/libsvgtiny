@@ -1008,9 +1008,13 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 				dom_node_unref(child);
 				return svgtiny_LIBDOM_ERROR;
 			}
-			shape->text = strndup(dom_string_data(content),
-					      dom_string_byte_length(content));
-			dom_string_unref(content);
+			if (content != NULL) {
+				shape->text = strndup(dom_string_data(content),
+						      dom_string_byte_length(content));
+				dom_string_unref(content);
+			} else {
+				shape->text = strdup("");
+			}
 			shape->text_x = px;
 			shape->text_y = py;
 			state.diagram->shape_count++;
