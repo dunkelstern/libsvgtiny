@@ -462,7 +462,13 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 				gradient_norm_squared;
 
 		/* determine steps from change in r */
-		steps = ceilf(fabsf(r1 - r0) / 0.05);
+
+		if(isnan(r0) || isnan(r1)) {
+			steps = 1;
+		} else {
+			steps = ceilf(fabsf(r1 - r0) / 0.05);
+		}
+
 		if (steps == 0)
 			steps = 1;
 		fprintf(stderr, "r0 %g, r1 %g, steps %i\n",
