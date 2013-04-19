@@ -1,6 +1,6 @@
 # Component settings
 COMPONENT := svgtiny
-COMPONENT_VERSION := 0.0.2
+COMPONENT_VERSION := 0.1.0
 # Default to a static library
 COMPONENT_TYPE ?= lib-static
 
