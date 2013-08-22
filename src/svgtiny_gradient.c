@@ -34,7 +34,9 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	dom_string *id_str;
 	dom_exception exc;
 
+	#ifdef GRADIENT_DEBUG
 	fprintf(stderr, "svgtiny_find_gradient: id \"%s\"\n", id);
+	#endif
 
 	state->linear_gradient_stop_count = 0;
 	if (state->gradient_x1 != NULL)
@@ -69,7 +71,9 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 		return;
 
 	if (gradient == NULL) {
+		#ifdef GRADIENT_DEBUG
 		fprintf(stderr, "gradient \"%s\" not found\n", id);
+		#endif
 		return;
 	}
 	
@@ -162,8 +166,10 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 		}
 		svgtiny_parse_transform(s, &a, &b, &c, &d, &e, &f);
 		free(s);
+		#ifdef GRADIENT_DEBUG
 		fprintf(stderr, "transform %g %g %g %g %g %g\n",
 			a, b, c, d, e, f);
+		#endif
 		state->gradient_transform.a = a;
 		state->gradient_transform.b = b;
 		state->gradient_transform.c = c;
@@ -237,7 +243,9 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 				dom_string_unref(attr);
 			}
 			if (offset != -1 && color != svgtiny_TRANSPARENT) {
+				#ifdef GRADIENT_DEBUG
 				fprintf(stderr, "stop %g %x\n", offset, color);
+				#endif
 				state->gradient_stop[i].offset = offset;
 				state->gradient_stop[i].color = color;
 				i++;
@@ -390,9 +398,11 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 
 	/* invert gradient transform for applying to vertices */
 	svgtiny_invert_matrix(&state->gradient_transform.a, trans);
+	#ifdef GRADIENT_DEBUG
 	fprintf(stderr, "inverse transform %g %g %g %g %g %g\n",
 			trans[0], trans[1], trans[2], trans[3],
 			trans[4], trans[5]);
+	#endif
 
 	/* compute points on the path for triangle vertices */
 	/* r, r0, r1 are distance along gradient vector */
@@ -471,8 +481,10 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 
 		if (steps == 0)
 			steps = 1;
+		#ifdef GRADIENT_DEBUG
 		fprintf(stderr, "r0 %g, r1 %g, steps %i\n",
 				r0, r1, steps);
+		#endif
 
 		/* loop through intermediate points */
 		for (z = 1; z != steps; z++) {
@@ -497,7 +509,9 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			r = ((x_trans - gradient_x0) * gradient_dx +
 					(y_trans - gradient_y0) * gradient_dy) /
 					gradient_norm_squared;
+			#ifdef GRADIENT_DEBUG
 			fprintf(stderr, "(%g %g [%g]) ", x, y, r);
+			#endif
 			point = svgtiny_list_push(pts);
 			if (!point) {
 				svgtiny_list_free(pts);
@@ -511,14 +525,18 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 				min_pt = svgtiny_list_size(pts) - 1;
 			}
 		}
+		#ifdef GRADIENT_DEBUG
 		fprintf(stderr, "\n");
+		#endif
 
 		/* next segment start point is this segment end point */
 		x0 = x1;
 		y0 = y1;
 	}
+	#ifdef GRADIENT_DEBUG
 	fprintf(stderr, "pts size %i, min_pt %i, min_r %.3f\n",
 			svgtiny_list_size(pts), min_pt, min_r);
+	#endif
 
 	/* render triangles */
 	stop_count = state->linear_gradient_stop_count;
