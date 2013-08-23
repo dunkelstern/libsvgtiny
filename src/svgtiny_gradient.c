@@ -31,7 +31,7 @@ static void svgtiny_invert_matrix(float *m, float *inv);
 void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 {
 	dom_element *gradient;
-	dom_string *id_str;
+	dom_string *id_str, *name;
 	dom_exception exc;
 
 	#ifdef GRADIENT_DEBUG
@@ -59,35 +59,32 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	state->gradient_transform.e = 0;
 	state->gradient_transform.f = 0;
 	
-	exc = dom_string_create_interned((const uint8_t *) id, strlen(id),
-					 &id_str);
+	exc = dom_string_create_interned((const uint8_t *) id,
+			strlen(id), &id_str);
 	if (exc != DOM_NO_ERR)
 		return;
 	
 	exc = dom_document_get_element_by_id(state->document, id_str,
 					     &gradient);
 	dom_string_unref(id_str);
-	if (exc != DOM_NO_ERR)
-		return;
-
-	if (gradient == NULL) {
+	if (exc != DOM_NO_ERR || gradient == NULL) {
 		#ifdef GRADIENT_DEBUG
 		fprintf(stderr, "gradient \"%s\" not found\n", id);
 		#endif
 		return;
 	}
 	
-	exc = dom_node_get_node_name(gradient, &id_str);
+	exc = dom_node_get_node_name(gradient, &name);
 	if (exc != DOM_NO_ERR) {
 		dom_node_unref(gradient);
 		return;
 	}
 	
-	if (dom_string_isequal(id_str, state->interned_linearGradient))
+	if (dom_string_isequal(name, state->interned_linearGradient))
 		svgtiny_parse_linear_gradient(gradient, state);
 	
-	dom_string_unref(id_str);
 	dom_node_unref(gradient);
+	dom_string_unref(name);
 
 	#ifdef GRADIENT_DEBUG
 	fprintf(stderr, "linear_gradient_stop_count %i\n",
