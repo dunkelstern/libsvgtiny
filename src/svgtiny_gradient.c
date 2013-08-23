@@ -88,6 +88,11 @@ void svgtiny_find_gradient(const char *id, struct svgtiny_parse_state *state)
 	
 	dom_string_unref(id_str);
 	dom_node_unref(gradient);
+
+	#ifdef GRADIENT_DEBUG
+	fprintf(stderr, "linear_gradient_stop_count %i\n",
+			state->linear_gradient_stop_count);
+	#endif
 }
 
 

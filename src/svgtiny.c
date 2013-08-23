@@ -1392,8 +1392,6 @@ static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 				*rparen = 0;
 			svgtiny_find_gradient(id, state);
 			free(id);
-			fprintf(stderr, "linear_gradient_stop_count %i\n",
-					state->linear_gradient_stop_count);
 			if (state->linear_gradient_stop_count == 0)
 				*c = svgtiny_TRANSPARENT;
 			else if (state->linear_gradient_stop_count == 1)
