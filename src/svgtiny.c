@@ -56,6 +56,52 @@ static svgtiny_code svgtiny_add_path(float *p, unsigned int n,
 static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 		struct svgtiny_parse_state *state);
 
+/**
+ * Set the local externally-stored parts of a parse state.
+ * Call this in functions that made a new state on the stack.
+ * Doesn't make own copy of global state, such as the interned string list.
+ */
+static void svgtiny_setup_state_local(struct svgtiny_parse_state *state)
+{
+	if (state->gradient_x1 != NULL) {
+		dom_string_ref(state->gradient_x1);
+	}
+	if (state->gradient_y1 != NULL) {
+		dom_string_ref(state->gradient_y1);
+	}
+	if (state->gradient_x2 != NULL) {
+		dom_string_ref(state->gradient_x2);
+	}
+	if (state->gradient_y2 != NULL) {
+		dom_string_ref(state->gradient_y2);
+	}
+}
+
+/**
+ * Cleanup the local externally-stored parts of a parse state.
+ * Call this in functions that made a new state on the stack.
+ * Doesn't cleanup global state, such as the interned string list.
+ */
+static void svgtiny_cleanup_state_local(struct svgtiny_parse_state *state)
+{
+	if (state->gradient_x1 != NULL) {
+		dom_string_unref(state->gradient_x1);
+		state->gradient_x1 = NULL;
+	}
+	if (state->gradient_y1 != NULL) {
+		dom_string_unref(state->gradient_y1);
+		state->gradient_y1 = NULL;
+	}
+	if (state->gradient_x2 != NULL) {
+		dom_string_unref(state->gradient_x2);
+		state->gradient_x2 = NULL;
+	}
+	if (state->gradient_y2 != NULL) {
+		dom_string_unref(state->gradient_y2);
+		state->gradient_y2 = NULL;
+	}
+}
+
 
 /**
  * Create a new svgtiny_diagram structure.
@@ -105,6 +151,11 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	assert(url);
 
 	UNUSED(url);
+
+	state.gradient_x1 = NULL;
+	state.gradient_y1 = NULL;
+	state.gradient_x2 = NULL;
+	state.gradient_y2 = NULL;
 
 	parser = dom_xml_parser_create(NULL, NULL,
 				       ignore_msg, NULL, &document);
@@ -205,14 +256,7 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	dom_node_unref(document);
 
 cleanup:
-	if (state.gradient_x1 != NULL)
-		dom_string_unref(state.gradient_x1);
-	if (state.gradient_x2 != NULL)
-		dom_string_unref(state.gradient_x2);
-	if (state.gradient_y1 != NULL)
-		dom_string_unref(state.gradient_y1);
-	if (state.gradient_y2 != NULL)
-		dom_string_unref(state.gradient_y2);
+	svgtiny_cleanup_state_local(&state);
 #define SVGTINY_STRING_ACTION2(s,n)			\
 	if (state.interned_##s != NULL)			\
 		dom_string_unref(state.interned_##s);
@@ -234,6 +278,8 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 	dom_element *child;
 	dom_exception exc;
 
+	svgtiny_setup_state_local(&state);
+
 	svgtiny_parse_position_attributes(svg, state, &x, &y, &width, &height);
 	svgtiny_parse_paint_attributes(svg, &state);
 	svgtiny_parse_font_attributes(svg, &state);
@@ -241,6 +287,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 	exc = dom_element_get_attribute(svg, state.interned_viewBox,
 					&view_box);
 	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
 	}
 
@@ -265,6 +312,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 
 	exc = dom_node_get_first_child(svg, (dom_node **) (void *) &child);
 	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
 	}
 	while (child != NULL) {
@@ -282,6 +330,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 			exc = dom_node_get_node_name(child, &nodename);
 			if (exc != DOM_NO_ERR) {
 				dom_node_unref(child);
+				svgtiny_cleanup_state_local(&state);
 				return svgtiny_LIBDOM_ERROR;
 			}
 			if (dom_string_caseless_isequal(state.interned_svg,
@@ -321,17 +370,20 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 		}
 		if (code != svgtiny_OK) {
 			dom_node_unref(child);
+			svgtiny_cleanup_state_local(&state);
 			return code;
 		}
 		exc = dom_node_get_next_sibling(child,
 						(dom_node **) (void *) &next);
 		dom_node_unref(child);
 		if (exc != DOM_NO_ERR) {
+			svgtiny_cleanup_state_local(&state);
 			return svgtiny_LIBDOM_ERROR;
 		}
 		child = next;
 	}
 
+	svgtiny_cleanup_state_local(&state);
 	return svgtiny_OK;
 }
 
@@ -346,6 +398,7 @@ svgtiny_code svgtiny_parse_svg(dom_element *svg,
 svgtiny_code svgtiny_parse_path(dom_element *path,
 		struct svgtiny_parse_state state)
 {
+	svgtiny_code err;
 	dom_string *path_d_str;
 	dom_exception exc;
 	char *s, *path_d;
@@ -355,6 +408,8 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 	float last_cubic_x = 0, last_cubic_y = 0;
 	float last_quad_x = 0, last_quad_y = 0;
 
+	svgtiny_setup_state_local(&state);
+
 	svgtiny_parse_paint_attributes(path, &state);
 	svgtiny_parse_transform_attributes(path, &state);
 
@@ -363,12 +418,14 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 	if (exc != DOM_NO_ERR) {
 		state.diagram->error_line = -1; /* path->line; */
 		state.diagram->error_message = "path: error retrieving d attribute";
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_SVG_ERROR;
 	}
 
 	if (path_d_str == NULL) {
 		state.diagram->error_line = -1; /* path->line; */
 		state.diagram->error_message = "path: missing d attribute";
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_SVG_ERROR;
 	}
 
@@ -376,12 +433,14 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 			     dom_string_byte_length(path_d_str));
 	dom_string_unref(path_d_str);
 	if (s == NULL) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
 	}
 	/* allocate space for path: it will never have more elements than d */
 	p = malloc(sizeof p[0] * strlen(s));
 	if (!p) {
 		free(path_d);
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
 	}
 
@@ -578,10 +637,15 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 	if (i <= 4) {
 		/* no real segments in path */
 		free(p);
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OK;
 	}
 
-	return svgtiny_add_path(p, i, &state);
+	err = svgtiny_add_path(p, i, &state);
+
+	svgtiny_cleanup_state_local(&state);
+
+	return err;
 }
 
 
@@ -594,8 +658,11 @@ svgtiny_code svgtiny_parse_path(dom_element *path,
 svgtiny_code svgtiny_parse_rect(dom_element *rect,
 		struct svgtiny_parse_state state)
 {
+	svgtiny_code err;
 	float x, y, width, height;
 	float *p;
+
+	svgtiny_setup_state_local(&state);
 
 	svgtiny_parse_position_attributes(rect, state,
 			&x, &y, &width, &height);
@@ -603,8 +670,10 @@ svgtiny_code svgtiny_parse_rect(dom_element *rect,
 	svgtiny_parse_transform_attributes(rect, &state);
 
 	p = malloc(13 * sizeof p[0]);
-	if (!p)
+	if (!p) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x;
@@ -620,7 +689,11 @@ svgtiny_code svgtiny_parse_rect(dom_element *rect,
 	p[11] = y + height;
 	p[12] = svgtiny_PATH_CLOSE;
 
-	return svgtiny_add_path(p, 13, &state);
+	err = svgtiny_add_path(p, 13, &state);
+
+	svgtiny_cleanup_state_local(&state);
+
+	return err;
 }
 
 
@@ -631,30 +704,39 @@ svgtiny_code svgtiny_parse_rect(dom_element *rect,
 svgtiny_code svgtiny_parse_circle(dom_element *circle,
 		struct svgtiny_parse_state state)
 {
+	svgtiny_code err;
 	float x = 0, y = 0, r = -1;
 	float *p;
 	dom_string *attr;
 	dom_exception exc;
 
+	svgtiny_setup_state_local(&state);
+
 	exc = dom_element_get_attribute(circle, state.interned_cx, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		x = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(circle, state.interned_cy, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		y = svgtiny_parse_length(attr, state.viewport_height, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(circle, state.interned_r, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		r = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
@@ -666,14 +748,19 @@ svgtiny_code svgtiny_parse_circle(dom_element *circle,
 	if (r < 0) {
 		state.diagram->error_line = -1; /* circle->line; */
 		state.diagram->error_message = "circle: r missing or negative";
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_SVG_ERROR;
 	}
-	if (r == 0)
+	if (r == 0) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OK;
+	}
 
 	p = malloc(32 * sizeof p[0]);
-	if (!p)
+	if (!p) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x + r;
@@ -707,8 +794,12 @@ svgtiny_code svgtiny_parse_circle(dom_element *circle,
 	p[29] = x + r;
 	p[30] = y;
 	p[31] = svgtiny_PATH_CLOSE;
+
+	err = svgtiny_add_path(p, 32, &state);
+
+	svgtiny_cleanup_state_local(&state);
 	
-	return svgtiny_add_path(p, 32, &state);
+	return err;
 }
 
 
@@ -719,38 +810,49 @@ svgtiny_code svgtiny_parse_circle(dom_element *circle,
 svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 		struct svgtiny_parse_state state)
 {
+	svgtiny_code err;
 	float x = 0, y = 0, rx = -1, ry = -1;
 	float *p;
 	dom_string *attr;
 	dom_exception exc;
 
+	svgtiny_setup_state_local(&state);
+
 	exc = dom_element_get_attribute(ellipse, state.interned_cx, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		x = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(ellipse, state.interned_cy, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		y = svgtiny_parse_length(attr, state.viewport_height, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(ellipse, state.interned_rx, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		rx = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(ellipse, state.interned_ry, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		ry = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
@@ -763,14 +865,19 @@ svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 		state.diagram->error_line = -1; /* ellipse->line; */
 		state.diagram->error_message = "ellipse: rx or ry missing "
 				"or negative";
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_SVG_ERROR;
 	}
-	if (rx == 0 || ry == 0)
+	if (rx == 0 || ry == 0) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OK;
+	}
 
 	p = malloc(32 * sizeof p[0]);
-	if (!p)
+	if (!p) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x + rx;
@@ -805,7 +912,11 @@ svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 	p[30] = y;
 	p[31] = svgtiny_PATH_CLOSE;
 	
-	return svgtiny_add_path(p, 32, &state);
+	err = svgtiny_add_path(p, 32, &state);
+
+	svgtiny_cleanup_state_local(&state);
+
+	return err;
 }
 
 
@@ -816,38 +927,49 @@ svgtiny_code svgtiny_parse_ellipse(dom_element *ellipse,
 svgtiny_code svgtiny_parse_line(dom_element *line,
 		struct svgtiny_parse_state state)
 {
+	svgtiny_code err;
 	float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
 	float *p;
 	dom_string *attr;
 	dom_exception exc;
 
+	svgtiny_setup_state_local(&state);
+
 	exc = dom_element_get_attribute(line, state.interned_x1, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		x1 = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(line, state.interned_y1, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		y1 = svgtiny_parse_length(attr, state.viewport_height, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(line, state.interned_x2, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		x2 = svgtiny_parse_length(attr, state.viewport_width, state);
 	}
 	dom_string_unref(attr);
 
 	exc = dom_element_get_attribute(line, state.interned_y2, &attr);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	if (attr != NULL) {
 		y2 = svgtiny_parse_length(attr, state.viewport_height, state);
 	}
@@ -857,8 +979,10 @@ svgtiny_code svgtiny_parse_line(dom_element *line,
 	svgtiny_parse_transform_attributes(line, &state);
 
 	p = malloc(7 * sizeof p[0]);
-	if (!p)
+	if (!p) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 
 	p[0] = svgtiny_PATH_MOVE;
 	p[1] = x1;
@@ -868,7 +992,11 @@ svgtiny_code svgtiny_parse_line(dom_element *line,
 	p[5] = y2;
 	p[6] = svgtiny_PATH_CLOSE;
 
-	return svgtiny_add_path(p, 7, &state);
+	err = svgtiny_add_path(p, 7, &state);
+
+	svgtiny_cleanup_state_local(&state);
+
+	return err;
 }
 
 
@@ -882,24 +1010,30 @@ svgtiny_code svgtiny_parse_line(dom_element *line,
 svgtiny_code svgtiny_parse_poly(dom_element *poly,
 		struct svgtiny_parse_state state, bool polygon)
 {
+	svgtiny_code err;
 	dom_string *points_str;
 	dom_exception exc;
 	char *s, *points;
 	float *p;
 	unsigned int i;
 
+	svgtiny_setup_state_local(&state);
+
 	svgtiny_parse_paint_attributes(poly, &state);
 	svgtiny_parse_transform_attributes(poly, &state);
 	
 	exc = dom_element_get_attribute(poly, state.interned_points,
 					&points_str);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_LIBDOM_ERROR;
+	}
 	
 	if (points_str == NULL) {
 		state.diagram->error_line = -1; /* poly->line; */
 		state.diagram->error_message =
 				"polyline/polygon: missing points attribute";
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_SVG_ERROR;
 	}
 
@@ -907,12 +1041,15 @@ svgtiny_code svgtiny_parse_poly(dom_element *poly,
 			     dom_string_byte_length(points_str));
 	dom_string_unref(points_str);
 	/* read points attribute */
-	if (s == NULL)
+	if (s == NULL) {
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
+	}
 	/* allocate space for path: it will never have more elements than s */
 	p = malloc(sizeof p[0] * strlen(s));
 	if (!p) {
 		free(points);
+		svgtiny_cleanup_state_local(&state);
 		return svgtiny_OUT_OF_MEMORY;
 	}
 
@@ -942,7 +1079,11 @@ svgtiny_code svgtiny_parse_poly(dom_element *poly,
 
 	free(points);
 
-	return svgtiny_add_path(p, i, &state);
+	err = svgtiny_add_path(p, i, &state);
+
+	svgtiny_cleanup_state_local(&state);
+
+	return err;
 }
 
 
@@ -958,6 +1099,8 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 	dom_node *child;
 	dom_exception exc;
 
+	svgtiny_setup_state_local(&state);
+
 	svgtiny_parse_position_attributes(text, state,
 			&x, &y, &width, &height);
 	svgtiny_parse_font_attributes(text, &state);
@@ -972,8 +1115,10 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 	style.font_size.value.length.value *= state.ctm.a;*/
 	
         exc = dom_node_get_first_child(text, &child);
-	if (exc != DOM_NO_ERR)
+	if (exc != DOM_NO_ERR) {
 		return svgtiny_LIBDOM_ERROR;
+		svgtiny_cleanup_state_local(&state);
+	}
 	while (child != NULL) {
 		dom_node *next;
 		dom_node_type nodetype;
@@ -982,6 +1127,7 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 		exc = dom_node_get_node_type(child, &nodetype);
 		if (exc != DOM_NO_ERR) {
 			dom_node_unref(child);
+			svgtiny_cleanup_state_local(&state);
 			return svgtiny_LIBDOM_ERROR;
 		}
 		if (nodetype == DOM_ELEMENT_NODE) {
@@ -989,6 +1135,7 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 			exc = dom_node_get_node_name(child, &nodename);
 			if (exc != DOM_NO_ERR) {
 				dom_node_unref(child);
+				svgtiny_cleanup_state_local(&state);
 				return svgtiny_LIBDOM_ERROR;
 			}
 			if (dom_string_caseless_isequal(nodename,
@@ -1001,11 +1148,13 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 			dom_string *content;
 			if (shape == NULL) {
 				dom_node_unref(child);
+				svgtiny_cleanup_state_local(&state);
 				return svgtiny_OUT_OF_MEMORY;
 			}
 			exc = dom_text_get_whole_text(child, &content);
 			if (exc != DOM_NO_ERR) {
 				dom_node_unref(child);
+				svgtiny_cleanup_state_local(&state);
 				return svgtiny_LIBDOM_ERROR;
 			}
 			if (content != NULL) {
@@ -1022,14 +1171,19 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 
 		if (code != svgtiny_OK) {
 			dom_node_unref(child);
+			svgtiny_cleanup_state_local(&state);
 			return code;
 		}
 		exc = dom_node_get_next_sibling(child, &next);
 		dom_node_unref(child);
-		if (exc != DOM_NO_ERR)
+		if (exc != DOM_NO_ERR) {
+			svgtiny_cleanup_state_local(&state);
 			return svgtiny_LIBDOM_ERROR;
+		}
 		child = next;
 	}
+
+	svgtiny_cleanup_state_local(&state);
 
 	return svgtiny_OK;
 }
