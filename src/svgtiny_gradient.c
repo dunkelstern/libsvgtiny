@@ -658,7 +658,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 
 	/* render triangle vertices with r values for debugging */
 	#ifdef GRADIENT_DEBUG
-	for (unsigned int i = 0; i != pts->size; i++) {
+	for (unsigned int i = 0; i != svgtiny_list_size(pts); i++) {
 		struct grad_point *point = svgtiny_list_get(pts, i);
 		struct svgtiny_shape *shape = svgtiny_add_shape(state);
 		if (!shape)
