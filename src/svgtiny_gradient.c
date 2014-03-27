@@ -599,8 +599,8 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			free(p);
 			return svgtiny_OUT_OF_MEMORY;
 		}
-		shape->path = p;
-		shape->path_length = 10;
+		shape->path.path = p;
+		shape->path.length = 10;
 		/*shape->fill = svgtiny_TRANSPARENT;*/
 		if (current_stop == 0)
 			shape->fill = state->gradient_stop[0].color;
@@ -619,6 +619,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		#ifdef GRADIENT_DEBUG
 		shape->stroke = svgtiny_RGB(0, 0, 0xff);
 		#endif
+        shape->type = svgtiny_ShapeTypePath;
 		state->diagram->shape_count++;
 		if (point_a->r < point_b->r) {
 			t = a;
@@ -652,6 +653,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 		shape->path_length = 7;
 		shape->fill = svgtiny_TRANSPARENT;
 		shape->stroke = svgtiny_RGB(0xff, 0, 0);
+        shape->type = svgtiny_ShapeTypePath;
 		state->diagram->shape_count++;
 	}
 	#endif
@@ -674,6 +676,7 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 				state->ctm.d * point->y + state->ctm.f;
 		shape->fill = svgtiny_RGB(0, 0, 0);
 		shape->stroke = svgtiny_TRANSPARENT;
+        shape->type = svgtiny_ShapeTypePath;
 		state->diagram->shape_count++;
 	}
 	#endif
@@ -688,9 +691,10 @@ svgtiny_code svgtiny_add_path_linear_gradient(float *p, unsigned int n,
 			free(p);
 			return svgtiny_OUT_OF_MEMORY;
 		}
-		shape->path = p;
-		shape->path_length = n;
+		shape->path.path = p;
+		shape->path.length = n;
 		shape->fill = svgtiny_TRANSPARENT;
+        shape->type = svgtiny_ShapeTypePath;
 		state->diagram->shape_count++;
 	} else {
 		free(p);

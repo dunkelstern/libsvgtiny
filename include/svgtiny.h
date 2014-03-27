@@ -22,11 +22,40 @@ typedef int svgtiny_colour;
 #define svgtiny_BLUE(c) ((c) & 0xff)
 #endif
 
+#include <dom/dom.h>
+
+typedef enum {
+    svgtiny_TextAlignmentLeft = 0,
+    svgtiny_TextAlignmentCenter,
+    svgtiny_TextAlignmentRight
+} svgtiny_TextAlignment;
+
+typedef enum {
+    svgtiny_ShapeTypePath = 0,
+    svgtiny_ShapeTypeText,
+    svgtiny_ShapeTypeTextArea,
+    svgtiny_ShapeTypeUnused
+} svgtiny_ShapeType;
+
 struct svgtiny_shape {
-	float *path;
-	unsigned int path_length;
-	char *text;
-	float text_x, text_y;
+    union {
+        struct {
+            float *path;
+            unsigned int length;
+        } path;
+        struct {
+            char *text;
+            float x, y;
+            float transform_matrix[6];
+            char *font_family;
+            char *font_style;
+            char *font_variant;
+            unsigned int font_weight;
+            float font_size;
+            svgtiny_TextAlignment text_alignment;
+        } text;
+    };
+    svgtiny_ShapeType type;
 	svgtiny_colour fill;
 	svgtiny_colour stroke;
 	int stroke_width;

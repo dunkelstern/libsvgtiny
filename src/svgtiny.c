@@ -1161,7 +1161,6 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 		struct svgtiny_parse_state state)
 {
 	float x, y, width, height;
-	float px, py;
 	dom_node *child;
 	dom_exception exc;
 
@@ -1172,11 +1171,6 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 	svgtiny_parse_paint_attributes(text, &state);
 	svgtiny_parse_font_attributes(text, &state);
 	svgtiny_parse_transform_attributes(text, &state);
-
-	px = state.ctm.a * x + state.ctm.c * y + state.ctm.e;
-	py = state.ctm.b * x + state.ctm.d * y + state.ctm.f;
-/* 	state.ctm.e = px - state.origin_x; */
-/* 	state.ctm.f = py - state.origin_y; */
 
 	/*struct css_style style = state.style;
 	style.font_size.value.length.value *= state.ctm.a;*/
@@ -1225,14 +1219,68 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 				return svgtiny_LIBDOM_ERROR;
 			}
 			if (content != NULL) {
-				shape->text = strndup(dom_string_data(content),
+				shape->text.text = strndup(dom_string_data(content),
 						      dom_string_byte_length(content));
 				dom_string_unref(content);
 			} else {
-				shape->text = strdup("");
+				shape->text.text = strdup("");
 			}
-			shape->text_x = px;
-			shape->text_y = py;
+			shape->text.x = x;
+			shape->text.y = y;
+
+            shape->text.transform_matrix[0] = state.ctm.a;
+            shape->text.transform_matrix[1] = state.ctm.b;
+            shape->text.transform_matrix[2] = state.ctm.c;
+            shape->text.transform_matrix[3] = state.ctm.d;
+            shape->text.transform_matrix[4] = state.ctm.e;
+            shape->text.transform_matrix[5] = state.ctm.f;
+
+            if (state.font_family) {
+                const char *value = dom_string_data(state.font_family);
+                size_t len = dom_string_byte_length(state.font_family);
+                if (value[len - 1] == '\'') {
+                    len--;
+                }
+                if (value[0] == '\'') {
+                    value++;
+                    len--;
+                }
+                shape->text.font_family = strndup(value, len);
+            } else {
+                shape->text.font_family = NULL;
+            }
+
+            if (state.font_style) {
+                shape->text.font_style = strndup(dom_string_data(state.font_style),
+                                                  dom_string_byte_length(state.font_style));
+            } else {
+                shape->text.font_style = NULL;
+            }
+
+            if (state.font_variant) {
+                shape->text.font_variant = strndup(dom_string_data(state.font_variant),
+                                                 dom_string_byte_length(state.font_variant));
+            } else {
+                shape->text.font_variant = NULL;
+            }
+
+            if (state.text_anchor) {
+                const char *value = dom_string_data(state.text_anchor);
+                if (!strcasecmp(value, "end")) {
+                    shape->text.text_alignment = svgtiny_TextAlignmentRight;
+                } else if (!strcasecmp(value, "center")) {
+                    shape->text.text_alignment = svgtiny_TextAlignmentCenter;
+                } else {
+                    shape->text.text_alignment = svgtiny_TextAlignmentLeft;
+                }
+            } else {
+                shape->text.text_alignment = svgtiny_TextAlignmentLeft;
+            }
+
+            shape->text.font_size = (state.font_size > 0) ? state.font_size : 16;
+            shape->text.font_weight = (state.font_weight > 0) ? state.font_weight : 400;
+
+            shape->type = svgtiny_ShapeTypeText;
 			state.diagram->shape_count++;
 		}
 
@@ -1688,8 +1736,10 @@ svgtiny_code svgtiny_add_path(float *p, unsigned int n,
 		free(p);
 		return svgtiny_OUT_OF_MEMORY;
 	}
-	shape->path = p;
-	shape->path_length = n;
+	shape->path.path = p;
+	shape->path.length = n;
+    shape->type = svgtiny_ShapeTypePath;
+
 	state->diagram->shape_count++;
 
 	return svgtiny_OK;
@@ -1710,9 +1760,7 @@ struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state)
 	state->diagram->shape = shape;
 
 	shape += state->diagram->shape_count;
-	shape->path = 0;
-	shape->path_length = 0;
-	shape->text = 0;
+	shape->type = svgtiny_ShapeTypeUnused;
 	shape->fill = state->fill;
 	shape->stroke = state->stroke;
 	shape->stroke_width = (int)lroundf((float) state->stroke_width *
@@ -1775,10 +1823,28 @@ void svgtiny_free(struct svgtiny_diagram *svg)
 	assert(svg);
 
 	for (i = 0; i != svg->shape_count; i++) {
-		free(svg->shape[i].path);
-		free(svg->shape[i].text);
+        switch (svg->shape[i].type) {
+            case svgtiny_ShapeTypePath:
+                free(svg->shape[i].path.path);
+                break;
+            case svgtiny_ShapeTypeText:
+                free(svg->shape[i].text.text);
+                if (svg->shape[i].text.font_family) {
+                    free(svg->shape[i].text.font_family);
+                }
+                if (svg->shape[i].text.font_style) {
+                    free(svg->shape[i].text.font_style);
+                }
+                if (svg->shape[i].text.font_variant) {
+                    free(svg->shape[i].text.font_variant);
+                }
+                break;
+            case svgtiny_ShapeTypeTextArea:
+            case svgtiny_ShapeTypeUnused:
+            default:
+                break;
+        }
 	}
-	
 	free(svg->shape);
 
 	free(svg);
