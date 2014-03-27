@@ -15,8 +15,11 @@
 #include <string.h>
 
 #include <dom/dom.h>
+#ifndef MONOLYTHIC_BUILD
 #include <dom/bindings/xml/xmlparser.h>
-
+#else
+#include <bindings/xml/xmlparser.h>
+#endif
 #include "svgtiny.h"
 #include "svgtiny_internal.h"
 
