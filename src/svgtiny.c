@@ -100,6 +100,26 @@ static void svgtiny_cleanup_state_local(struct svgtiny_parse_state *state)
 		dom_string_unref(state->gradient_y2);
 		state->gradient_y2 = NULL;
 	}
+
+    if (state->font_family != NULL) {
+        dom_string_unref(state->font_family);
+        state->font_family = NULL;
+    }
+    if (state->font_style != NULL) {
+        dom_string_unref(state->font_style);
+        state->font_style = NULL;
+    }
+    if (state->font_variant != NULL) {
+        dom_string_unref(state->font_variant);
+        state->font_variant = NULL;
+    }
+    if (state->text_anchor != NULL) {
+        dom_string_unref(state->text_anchor);
+        state->text_anchor = NULL;
+    }
+
+    state->font_weight = 400;
+    state->font_size = 16;
 }
 
 
@@ -1470,26 +1490,76 @@ void svgtiny_parse_color(dom_string *s, svgtiny_colour *c,
 void svgtiny_parse_font_attributes(dom_element *node,
 		struct svgtiny_parse_state *state)
 {
-	/* TODO: Implement this, it never used to be */
-	UNUSED(node);
-	UNUSED(state);
-#ifdef WRITTEN_THIS_PROPERLY
-	const xmlAttr *attr;
+    /* TODO: parse css styles too */
+	dom_string *attr;
+	dom_exception exc;
 
 	UNUSED(state);
 
-	for (attr = node->properties; attr; attr = attr->next) {
-		if (strcmp((const char *) attr->name, "font-size") == 0) {
-			/*if (css_parse_length(
-					(const char *) attr->children->content,
-					&state->style.font_size.value.length,
-					true, true)) {
-				state->style.font_size.size =
-						CSS_FONT_SIZE_LENGTH;
-			}*/
-		}
+    /* font size */
+    exc = dom_element_get_attribute(node, state->interned_font_size, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        const char *value = dom_string_data(attr);
+        size_t len = dom_string_length(attr);
+        state->font_size = atof(value);
+
+        if ((value[len - 2] == 'p') && (value[len - 1] == 't')) {
+            state->font_size *= 96.0 / 72.0;
         }
-#endif
+        if ((value[len - 2] == 'm') && (value[len - 1] == 'm')) {
+            state->font_size *= 25.4 * 96.0;
+        }
+        if ((value[len - 2] == 'c') && (value[len - 1] == 'm')) {
+            state->font_size *= 2.54 * 96.0;
+        }
+        if ((value[len - 2] == 'i') && (value[len - 1] == 'n')) {
+            state->font_size *= 96.0;
+        }
+        dom_string_unref(attr);
+    }
+
+    /* font family */
+    exc = dom_element_get_attribute(node, state->interned_font_family, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        state->font_family = attr;
+    }
+
+    /* font style */
+    exc = dom_element_get_attribute(node, state->interned_font_style, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        state->font_style = attr;
+    }
+
+    /* font variant */
+    exc = dom_element_get_attribute(node, state->interned_font_variant, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        state->font_variant = attr;
+    }
+
+    /* font weight */
+    exc = dom_element_get_attribute(node, state->interned_font_weight, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        const char *value = dom_string_data(attr);
+        state->font_weight = atoi(value);
+        if (state->font_weight == 0) {
+            if (!strcasecmp(value, "normal")) {
+                state->font_weight = 400;
+            } else if (!strcasecmp(value, "bold")) {
+                state->font_weight = 700;
+            } else if (!strcasecmp(value, "bolder")) {
+                state->font_weight = 900;
+            } else if (!strcasecmp(value, "lighter")) {
+                state->font_weight = 100;
+            }
+        }
+        dom_string_unref(attr);
+    }
+
+    /* font variant */
+    exc = dom_element_get_attribute(node, state->interned_text_anchor, &attr);
+	if (exc == DOM_NO_ERR && attr != NULL) {
+        state->text_anchor = attr;
+    }
 }
 
 

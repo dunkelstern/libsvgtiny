@@ -54,4 +54,12 @@ SVGTINY_STRING_ACTION2(stop_color,stop-color)
 SVGTINY_STRING_ACTION2(zero_percent,0%)
 SVGTINY_STRING_ACTION2(hundred_percent,100%)
 
+SVGTINY_STRING_ACTION2(font_family,font-family)
+SVGTINY_STRING_ACTION2(font_style,font-style)
+SVGTINY_STRING_ACTION2(font_variant,font-variant)
+SVGTINY_STRING_ACTION2(font_weight,font-weight)
+SVGTINY_STRING_ACTION2(font_size,font-size)
+SVGTINY_STRING_ACTION2(text_anchor,text-anchor)
+
+
 #undef SVGTINY_STRING_ACTION

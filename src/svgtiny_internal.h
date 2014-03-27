@@ -52,6 +52,15 @@ struct svgtiny_parse_state {
 		float a, b, c, d, e, f;
 	} gradient_transform;
 
+    /* font attributes */
+    dom_string *font_family;
+    dom_string *font_style;
+    dom_string *font_variant;
+    unsigned int font_weight;
+    float font_size;
+    dom_string *text_anchor;
+
+
 	/* Interned strings */
 #define SVGTINY_STRING_ACTION2(n,nn) dom_string *interned_##n;
 #include "svgtiny_strings.h"
