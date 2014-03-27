@@ -69,4 +69,8 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		int width, int height);
 void svgtiny_free(struct svgtiny_diagram *svg);
 
+svgtiny_code svgtiny_parse_dom(const char *buffer, size_t size, const char *url, dom_document **output_dom);
+svgtiny_code svgtiny_parse_svg_from_dom(struct svgtiny_diagram *diagram, dom_document *dom, int width, int height);
+void svgtiny_free_dom(dom_document *dom);
+
 #endif

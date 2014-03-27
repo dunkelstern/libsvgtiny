@@ -128,12 +128,10 @@ static void ignore_msg(uint32_t severity, void *ctx, const char *msg, ...)
 }
 
 /**
- * Parse a block of memory into a svgtiny_diagram.
+ * Parse a block of memory into a dom_document.
  */
 
-svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
-		const char *buffer, size_t size, const char *url,
-		int viewport_width, int viewport_height)
+svgtiny_code svgtiny_parse_dom(const char *buffer, size_t size, const char *url, dom_document **output_dom)
 {
 	dom_document *document;
 	dom_exception exc;
@@ -142,23 +140,14 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	dom_element *svg;
 	dom_string *svg_name;
 	lwc_string *svg_name_lwc;
-	struct svgtiny_parse_state state;
-	float x, y, width, height;
-	svgtiny_code code;
 
-	assert(diagram);
-	assert(buffer);
+    assert(buffer);
 	assert(url);
 
 	UNUSED(url);
 
-	state.gradient_x1 = NULL;
-	state.gradient_y1 = NULL;
-	state.gradient_x2 = NULL;
-	state.gradient_y2 = NULL;
-
-	parser = dom_xml_parser_create(NULL, NULL,
-				       ignore_msg, NULL, &document);
+    parser = dom_xml_parser_create(NULL, NULL,
+                                   ignore_msg, NULL, &document);
 
 	if (parser == NULL)
 		return svgtiny_LIBDOM_ERROR;
@@ -209,8 +198,41 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 		return svgtiny_NOT_SVG;
 	}
 
+	dom_node_unref(svg);
 	lwc_string_unref(svg_name_lwc);
 	dom_string_unref(svg_name);
+
+    *output_dom = document;
+    return svgtiny_OK;
+}
+
+/**
+ * Parse a dom_document into a svgtiny_diagram.
+ */
+
+svgtiny_code svgtiny_parse_svg_from_dom(struct svgtiny_diagram *diagram,
+        dom_document *document, int viewport_width, int viewport_height)
+{
+    dom_element *svg;
+    dom_exception exc;
+	svgtiny_code code;
+
+    exc = dom_document_get_document_element(document, &svg);
+	if (exc != DOM_NO_ERR) {
+		dom_node_unref(document);
+		return svgtiny_LIBDOM_ERROR;
+	}
+
+	struct svgtiny_parse_state state;
+	float x, y, width, height;
+
+	assert(diagram);
+
+	state.gradient_x1 = NULL;
+	state.gradient_y1 = NULL;
+	state.gradient_x2 = NULL;
+	state.gradient_y2 = NULL;
+
 
 	/* get graphic dimensions */
 	memset(&state, 0, sizeof(state));
@@ -253,7 +275,6 @@ svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
 	code = svgtiny_parse_svg(svg, state);
 
 	dom_node_unref(svg);
-	dom_node_unref(document);
 
 cleanup:
 	svgtiny_cleanup_state_local(&state);
@@ -263,6 +284,31 @@ cleanup:
 #include "svgtiny_strings.h"
 #undef SVGTINY_STRING_ACTION2
 	return code;
+}
+
+/**
+ * Parse a block of memory into a svgtiny_diagram.
+ */
+
+svgtiny_code svgtiny_parse(struct svgtiny_diagram *diagram,
+		const char *buffer, size_t size, const char *url,
+		int viewport_width, int viewport_height)
+{
+	svgtiny_code code;
+    dom_document *document;
+
+    code = svgtiny_parse_dom(buffer, size, url, &document);
+    if (code != svgtiny_OK) {
+        return code;
+    }
+
+    code = svgtiny_parse_svg_from_dom(diagram, document, viewport_width, viewport_height);
+	dom_node_unref(document);
+    return code;
+}
+
+void svgtiny_free_dom(dom_document *dom) {
+    dom_node_unref(dom);
 }
 
 
