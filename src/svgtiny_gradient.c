@@ -233,7 +233,7 @@ svgtiny_code svgtiny_parse_linear_gradient(dom_element *linear,
 						(const uint8_t *) s,
 						strcspn(s, "; "),
 						&value);
-					if (exc != DOM_NO_ERR && 
+					if (exc == DOM_NO_ERR &&
 					    value != NULL) {
 						svgtiny_parse_color(value,
 								    &color,
