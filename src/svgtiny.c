@@ -1286,7 +1286,7 @@ void svgtiny_parse_position_attributes(dom_element *node,
 static float _svgtiny_parse_length(const char *s, int viewport_size,
 				   const struct svgtiny_parse_state state)
 {
-	int num_length = strspn(s, "0123456789+-.");
+	size_t num_length = strspn(s, "0123456789+-.");
 	const char *unit = s + num_length;
 	float n = atof((const char *) s);
 	float font_size = 20; /*css_len2px(&state.style.font_size.value.length, 0);*/
@@ -1448,7 +1448,7 @@ static void _svgtiny_parse_color(const char *s, svgtiny_colour *c,
 
 	} else {
 		const struct svgtiny_named_color *named_color;
-		named_color = svgtiny_color_lookup(s, strlen(s));
+		named_color = svgtiny_color_lookup(s, (unsigned int)strlen(s));
 		if (named_color)
 			*c = named_color->color;
 	}
@@ -1644,7 +1644,7 @@ struct svgtiny_shape *svgtiny_add_shape(struct svgtiny_parse_state *state)
 	shape->text = 0;
 	shape->fill = state->fill;
 	shape->stroke = state->stroke;
-	shape->stroke_width = lroundf((float) state->stroke_width *
+	shape->stroke_width = (int)lroundf((float) state->stroke_width *
 			(state->ctm.a + state->ctm.d) / 2.0);
 	if (0 < state->stroke_width && shape->stroke_width == 0)
 		shape->stroke_width = 1;
