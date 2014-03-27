@@ -1149,6 +1149,7 @@ svgtiny_code svgtiny_parse_text(dom_element *text,
 
 	svgtiny_parse_position_attributes(text, state,
 			&x, &y, &width, &height);
+	svgtiny_parse_paint_attributes(text, &state);
 	svgtiny_parse_font_attributes(text, &state);
 	svgtiny_parse_transform_attributes(text, &state);
 
