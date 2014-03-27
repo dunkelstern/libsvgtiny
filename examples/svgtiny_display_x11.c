@@ -345,18 +345,26 @@ void event_diagram_expose(const XExposeEvent *expose_event)
 	cairo_paint(cr);
 
 	for (i = 0; i != diagram->shape_count; i++) {
-		if (diagram->shape[i].path) {
-			render_path(cr, scale, &diagram->shape[i]);
+		switch (diagram->shape[i].type) {
+            case svgtiny_ShapeTypePath:
+            	render_path(cr, scale, &diagram->shape[i]);
+            	break;
+            case svgtiny_ShapeTypeText:
+				cairo_set_source_rgb(cr,
+					svgtiny_RED(diagram->shape[i].stroke) / 255.0,
+					svgtiny_GREEN(diagram->shape[i].stroke) / 255.0,
+					svgtiny_BLUE(diagram->shape[i].stroke) / 255.0);
+				cairo_move_to(cr,
+						scale * diagram->shape[i].text.x,
+						scale * diagram->shape[i].text.y);
+				cairo_show_text(cr, diagram->shape[i].text.text);
+			break;
 
-		} else if (diagram->shape[i].text) {
-			cairo_set_source_rgb(cr,
-				svgtiny_RED(diagram->shape[i].stroke) / 255.0,
-				svgtiny_GREEN(diagram->shape[i].stroke) / 255.0,
-				svgtiny_BLUE(diagram->shape[i].stroke) / 255.0);
-			cairo_move_to(cr,
-					scale * diagram->shape[i].text_x,
-					scale * diagram->shape[i].text_y);
-			cairo_show_text(cr, diagram->shape[i].text);
+			case svgtiny_ShapeTypeTextArea:
+            case svgtiny_ShapeTypeUnused:
+            default:
+            	fprintf(stderr, "Unsupported shape type %d", diagram->shape[i].type);
+            	break;
 		}
 	}
 
@@ -382,12 +390,12 @@ void render_path(cairo_t *cr, float scale, struct svgtiny_shape *path)
 	unsigned int j;
 
 	cairo_new_path(cr);
-	for (j = 0; j != path->path_length; ) {
-		switch ((int) path->path[j]) {
+	for (j = 0; j != path->path.length; ) {
+		switch ((int) path->path.path[j]) {
 		case svgtiny_PATH_MOVE:
 			cairo_move_to(cr,
-					scale * path->path[j + 1],
-					scale * path->path[j + 2]);
+					scale * path->path.path[j + 1],
+					scale * path->path.path[j + 2]);
 			j += 3;
 			break;
 		case svgtiny_PATH_CLOSE:
@@ -396,18 +404,18 @@ void render_path(cairo_t *cr, float scale, struct svgtiny_shape *path)
 			break;
 		case svgtiny_PATH_LINE:
 			cairo_line_to(cr,
-					scale * path->path[j + 1],
-					scale * path->path[j + 2]);
+					scale * path->path.path[j + 1],
+					scale * path->path.path[j + 2]);
 			j += 3;
 			break;
 		case svgtiny_PATH_BEZIER:
 			cairo_curve_to(cr,
-					scale * path->path[j + 1],
-					scale * path->path[j + 2],
-					scale * path->path[j + 3],
-					scale * path->path[j + 4],
-					scale * path->path[j + 5],
-					scale * path->path[j + 6]);
+					scale * path->path.path[j + 1],
+					scale * path->path.path[j + 2],
+					scale * path->path.path[j + 3],
+					scale * path->path.path[j + 4],
+					scale * path->path.path[j + 5],
+					scale * path->path.path[j + 6]);
 			j += 7;
 			break;
 		default:
